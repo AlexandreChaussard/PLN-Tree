@@ -29,3 +29,9 @@ model = PLNTree(
   ...
 )
 ```
+
+## 📜 Citations
+Please cite our work using the following reference:
+```
+.... (...). PLN-Tree: a Tree-based variational inference for Poisson log-normal models. URL_ARTICLE
+```
