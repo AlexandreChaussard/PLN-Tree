@@ -57,7 +57,7 @@ class PLNTree(nn.Module, _PLNTree):
                 projector = None
                 if identifiable:
                     projector = Vect1OrthogonalProjectorHierarchical(
-                        self.taxonomy,
+                        self.tree,
                         layer+self.selected_layers[0],
                         self.effective_K[layer]
                     )
@@ -97,7 +97,7 @@ class PLNTree(nn.Module, _PLNTree):
         # it depends on the abundance in the current branch and the children of the node Z^{l + 1}
         elif self.variational_approx == VariationalApproximation.BRANCH:
             self.m_fun, self.S_fun = backward_branch_markov(
-                taxonomy=self.taxonomy,
+                tree=self.tree,
                 selected_layers=self.selected_layers,
                 layer_masks=self.layer_masks,
             )
@@ -122,7 +122,7 @@ class PLNTree(nn.Module, _PLNTree):
                 m_fun, log_S_fun = self.m_fun[layer], self.S_fun[layer]
                 m_l, log_S_l_vec = m_fun(X_l), log_S_fun(X_l)
                 Z_l = reparametrization_trick(m_l, log_S_l_vec)
-                # Embed Z_l in an identifiable form with the taxonomy
+                # Embed Z_l in an identifiable form with the tree
                 Z_l_embed = torch.zeros((batch_size, X.size(2)))
                 Z_l_embed[:, mask] += Z_l
 
@@ -145,7 +145,7 @@ class PLNTree(nn.Module, _PLNTree):
                     data_input = torch.cat([X_embed, Z_l_next], dim=1)
                     m_l, log_S_l_vec = m_fun(data_input), S_fun(data_input)
                 Z_l = reparametrization_trick(m_l, log_S_l_vec)
-                # Embed Z_l in an identifiable form with the taxonomy
+                # Embed Z_l in an identifiable form with the tree
                 Z_l_embed = torch.zeros((batch_size, X.size(2)))
                 Z_l_embed[:, self.layer_masks[layer]] = Z_l
 
@@ -172,7 +172,7 @@ class PLNTree(nn.Module, _PLNTree):
                     Z_l_next = Z_l_embed
                     m_l, log_S_l_vec = m_fun(X, Z_l_next), S_fun(X, Z_l_next)
                 Z_l = reparametrization_trick(m_l, log_S_l_vec)
-                # Embed Z_l in an identifiable form with the taxonomy
+                # Embed Z_l in an identifiable form with the tree
                 Z_l_embed = torch.zeros((batch_size, X.size(2)))
                 Z_l_embed[:, self.layer_masks[layer]] = Z_l
 

@@ -79,9 +79,9 @@ def backward_markov(input_size, effective_K, embedder_type, embedding_size, n_em
 
 class BranchMarkovLayer(nn.Module):
 
-    def __init__(self, taxonomy, layer, selected_layers, mask, mean=True, n_layers=2):
+    def __init__(self, tree, layer, selected_layers, mask, mean=True, n_layers=2):
         super().__init__()
-        self.taxonomy = taxonomy
+        self.tree = tree
         self.layer = layer
         self.selected_layers = selected_layers
         self.return_mean = mean
@@ -89,7 +89,7 @@ class BranchMarkovLayer(nn.Module):
 
         self.m = []
         self.log_S = []
-        for node in taxonomy.getNodesAtDepth(layer + selected_layers[0]):
+        for node in tree.getNodesAtDepth(layer + selected_layers[0]):
             if mask[node.layer_index] is False:
                 continue
             children = node.children
@@ -112,7 +112,7 @@ class BranchMarkovLayer(nn.Module):
         m = []
         log_S = []
         i = 0
-        for node in self.taxonomy.getNodesAtDepth(self.layer + self.selected_layers[0]):
+        for node in self.tree.getNodesAtDepth(self.layer + self.selected_layers[0]):
             if self.mask[node.layer_index] is False:
                 continue
             children = node.children
@@ -140,7 +140,7 @@ class BranchMarkovLayer(nn.Module):
         return torch.cat(log_S, dim=1)
 
 
-def backward_branch_markov(layer_masks, taxonomy, selected_layers):
+def backward_branch_markov(layer_masks, tree, selected_layers):
     # The last layer predicts Z^L from X^{1:L}, but we'll just give it X^L for now
     # Then for each node we have a NN predicting Z_k^l from C(Z_k^{l}) and the branch from X_k^{l} to the root
 
@@ -164,8 +164,8 @@ def backward_branch_markov(layer_masks, taxonomy, selected_layers):
                 )
             )
         else:
-            m_fun_list.append(BranchMarkovLayer(taxonomy, layer, selected_layers, layer_masks[layer], mean=True))
-            S_fun_list.append(BranchMarkovLayer(taxonomy, layer, selected_layers, layer_masks[layer], mean=False))
+            m_fun_list.append(BranchMarkovLayer(tree, layer, selected_layers, layer_masks[layer], mean=True))
+            S_fun_list.append(BranchMarkovLayer(tree, layer, selected_layers, layer_masks[layer], mean=False))
 
     m_fun = nn.ModuleList(m_fun_list)
     S_fun = nn.ModuleList(S_fun_list)
