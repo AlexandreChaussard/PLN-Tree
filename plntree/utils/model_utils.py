@@ -281,7 +281,7 @@ def positive_output(input, function=None, function_args=()):
 
 
 class LogTransform(nn.Module):
-    def __init__(self, shift=1e-32):
+    def __init__(self, shift=1e-16):
         super(LogTransform, self).__init__()
         self.shift = shift
 
@@ -291,10 +291,10 @@ class LogTransform(nn.Module):
 
 class Preprocessing(nn.Module):
 
-    def __init__(self, n_features, log_transform=False, standardize=False, normalize=False, proportion=False):
-        super().__init__()
+    def __init__(self, n_features, log=False, standardize=False, normalize=False, proportion=False):
+        super(Preprocessing, self).__init__()
         self.n_features = n_features
-        self.log_transform = LogTransform() if log_transform else None
+        self.log_transform = LogTransform() if log else None
         self.standardize = nn.BatchNorm1d(n_features, affine=False) if standardize else None
         self.normalize = normalize
         self.proportion = proportion
@@ -308,12 +308,23 @@ class Preprocessing(nn.Module):
         if self.log_transform is not None and not self.proportion:
             x = self.log_transform(x)
         if self.standardize is not None:
-            x = (x - x.mean(dim=0, keepdim=True)) / (x.std(dim=0, keepdim=True) + 1e-8)
+            x = (x - x.mean(dim=0, keepdim=True)) / (x.std(dim=0, keepdim=True) + 1e-15)
         if self.normalize and not self.proportion:
             x_max = X.max()
             x_min = X.min()
             x = (x - x_min) / (x_max - x_min)
         return x
+
+
+class PartialPreprocessing(nn.Module):
+    def __init__(self, n_features, log=False, standardize=False, normalize=False, proportion=False):
+        super(PartialPreprocessing, self).__init__()
+        self.n_features = n_features
+        self.preprocessing = Preprocessing(n_features, log=log, standardize=standardize, normalize=normalize, proportion=proportion)
+
+    def forward(self, input):
+        X = input[:, :self.n_features]
+        return torch.concat((self.preprocessing(X), input[:, self.n_features:]), dim=-1)
 
 
 class ConstantSum(nn.Module):
@@ -376,7 +387,7 @@ class Vect1OrthogonalProjectorHierarchical(nn.Module):
         return P
 
     def forward(self, X):
-        P = self.P.expand(X.size(0), -1, -1)
+        P = self.P.expand(X.size(0), -1, -1).to(dtype=X.dtype)
         # If it's a vector, project it on Vect(1_d)^orthogonal
         if len(X.shape) == 2:
             return (P @ X.unsqueeze(-1)).squeeze(-1)
@@ -401,7 +412,7 @@ class PositiveDefiniteMatrix(nn.Module):
         if self.projector is not None:
             # The identifiability is given on Sigma as P Sigma P, so Omega = (P Sigma P)^-1
             # Hence we act as if we had built Sigma so far, and will simply invert the positive definite matrix
-            L = self.projector.P @ L
+            L = self.projector.P.to(dtype=L.dtype) @ L
         Omega = L @ L.mT
         # Regularize the diagonal to ensure invertibility
         i = torch.arange(Omega.size(-1))

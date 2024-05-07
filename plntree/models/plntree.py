@@ -8,7 +8,9 @@ from plntree.models.base_plntree import _PLNTree
 from plntree.utils.model_utils import (PLNParameter, BoundLayer, offsets, PositiveDefiniteMatrix,
                                    Vect1OrthogonalProjectorHierarchical, progressive_NN, is_not_inf_not_nan)
 
-from plntree.utils.variational_approximations import VariationalApproximation, backward_markov, backward_branch_markov
+from plntree.utils.variational_approximations import (VariationalApproximation,
+                                                      amortized_backward_markov, backward_branch_markov,
+                                                      weak_backward_markov, residual_backward_markov)
 
 
 class PLNTree(nn.Module, _PLNTree):
@@ -78,7 +80,7 @@ class PLNTree(nn.Module, _PLNTree):
         self.L = len(self.effective_K) - 1
 
         # If the variational approximation is Markov, it depends on the X^{1:l} and Z^{l + 1}
-        if self.variational_approx == VariationalApproximation.BACKWARD:
+        if self.variational_approx == VariationalApproximation.AMORTIZED_BACKWARD:
             if variational_approx_params is None:
                 variational_approx_params = {
                     'embedder_type': 'GRU',
@@ -86,16 +88,40 @@ class PLNTree(nn.Module, _PLNTree):
                     'n_embedding_layers': 2,
                     'n_embedding_neurons': 32,
                     'n_after_layers': 1,
-                    'preprocessing': ['log_transform']
+                    'preprocessing': ['log']
                 }
-            self.m_fun, self.S_fun, self.embedder = backward_markov(
+            self.m_fun, self.S_fun, self.embedder = amortized_backward_markov(
                 input_size=max(self.K),
                 effective_K=self.effective_K,
                 **variational_approx_params
             )
-
-        # If the variational approximation is Markov branch,
-        # it depends on the abundance in the current branch and the children of the node Z^{l + 1}
+        elif self.variational_approx == VariationalApproximation.RESIDUAL_BACKWARD:
+            if variational_approx_params is None:
+                variational_approx_params = {
+                    'embedder_type': 'GRU',
+                    'embedding_size': 32,
+                    'n_embedding_layers': 2,
+                    'n_embedding_neurons': 32,
+                    'n_after_layers': 1,
+                    'preprocessing': ['log']
+                }
+            self.m_fun, self.S_fun, self.embedder = residual_backward_markov(
+                input_size=max(self.K),
+                K=self.K,
+                effective_K=self.effective_K,
+                **variational_approx_params
+            )
+        elif self.variational_approx == VariationalApproximation.WEAK_BACKWARD:
+            if variational_approx_params is None:
+                variational_approx_params = {
+                    'n_layers': 2,
+                    'preprocessing': ['log']
+                }
+            self.m_fun, self.S_fun = weak_backward_markov(
+                K=self.K,
+                effective_K=self.effective_K,
+                **variational_approx_params
+            )
         elif self.variational_approx == VariationalApproximation.BRANCH:
             self.m_fun, self.S_fun = backward_branch_markov(
                 tree=self.tree,
@@ -130,24 +156,36 @@ class PLNTree(nn.Module, _PLNTree):
                 m.append(m_l)
                 log_S.append(log_S_l_vec)
                 Z.append(Z_l_embed)
-        elif self.variational_approx == VariationalApproximation.BACKWARD:
+        elif 'BACKWARD' in self.variational_approx.name.upper():
             for index in range(len(self.layer_masks)):
                 # Compute the parameters of Z ~ N(mu, Sigma²)
                 layer = self.L - index
-                X_1tol = X[:, :layer + 1, :].type(torch.float64)
-                X_embed = self.embedder(X_1tol)
+                if self.variational_approx == VariationalApproximation.AMORTIZED_BACKWARD or \
+                        self.variational_approx == VariationalApproximation.RESIDUAL_BACKWARD:
+                    if self.variational_approx == VariationalApproximation.AMORTIZED_BACKWARD:
+                        X_1tol = X[:, :layer + 1, :].type(torch.float64)
+                    else:
+                        X_1tol = X[:, :layer, :].type(torch.float64)
+                    X_embed = self.embedder(X_1tol)
+                    if self.variational_approx == VariationalApproximation.RESIDUAL_BACKWARD:
+                        X_l_flat = X[:, layer, :self.K[layer]].type(torch.float64)
+                        X_embed = torch.concat([X_l_flat, X_embed], dim=1)
+                elif self.variational_approx == VariationalApproximation.WEAK_BACKWARD:
+                    X_embed = X[:, layer, :self.K[layer]].type(torch.float64)
+                else:
+                    raise "Variational approximation not implemented"
                 m_fun, S_fun = self.m_fun[layer], self.S_fun[layer]
-                # The last layer is only getting X^{1:L} (layer = 0 is actually layer = L, we're going backward)
+                # The last layer is only getting X_embed (layer = 0 is actually layer = L, we're going backward)
                 if layer == self.L:
                     m_l, log_S_l_vec = m_fun(X_embed), S_fun(X_embed)
                 else:
                     # Z_l is computed in a backward fashion, so Z^{l + 1} is the previous "Z" element
                     Z_l_next = Z[-1][:, self.layer_masks[layer + 1]]
-                    data_input = torch.cat([X_embed, Z_l_next], dim=1)
+                    data_input = torch.cat([X_embed, Z_l_next], dim=-1)
                     m_l, log_S_l_vec = m_fun(data_input), S_fun(data_input)
                 Z_l = reparametrization_trick(m_l, log_S_l_vec)
                 # Embed Z_l in an identifiable form with the tree
-                Z_l_embed = torch.zeros((batch_size, X.size(2)))
+                Z_l_embed = torch.zeros((batch_size, X.size(2)), dtype=torch.float64)
                 Z_l_embed[:, self.layer_masks[layer]] = Z_l
 
                 m.append(m_l)

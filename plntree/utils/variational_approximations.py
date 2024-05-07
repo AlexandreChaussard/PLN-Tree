@@ -4,22 +4,24 @@ import numpy as np
 
 from enum import Enum
 
-from plntree.utils.model_utils import BoundLayer, Preprocessing, progressive_NN
+from plntree.utils.model_utils import BoundLayer, Preprocessing, PartialPreprocessing, progressive_NN
 
 
 class VariationalApproximation(Enum):
     MEAN_FIELD = "mean_field"
-    BACKWARD = "backward"
+    AMORTIZED_BACKWARD = "amortized_backward"
+    WEAK_BACKWARD = "weak_backward"
+    RESIDUAL_BACKWARD = "residual_backward"
     BRANCH = "branch"
 
 
 def mean_field(K, effective_K, n_variational_layers, preprocessing=None):
     if preprocessing is None:
         preprocessing = []
-    # TODO: log transform in the non-offset case seems to decrease quality of the results, but why?
-    preprocessing_params = {'log_transform': False, 'proportion': False, 'standardize': False}
-    for key in preprocessing:
-        preprocessing_params[key] = True
+    preprocessing_params = {'log': False, 'proportion': False, 'standardize': False}
+    if preprocessing is not None:
+        for key in preprocessing:
+            preprocessing_params[key] = True
     m_fun = nn.ModuleList([
         nn.Sequential(
             Preprocessing(K[layer], **preprocessing_params),
@@ -40,7 +42,8 @@ def mean_field(K, effective_K, n_variational_layers, preprocessing=None):
 
 
 class Embedder(nn.Module):
-    def __init__(self, input_size, embedding_size, hidden_size, n_layers, recurrent_network="GRU", dropout=0.2, preprocessing=('log_transform',)):
+    def __init__(self, input_size, embedding_size, hidden_size, n_layers, recurrent_network="GRU", dropout=0.2,
+                 preprocessing=('log',)):
         super(Embedder, self).__init__()
         self.embedding_size = embedding_size
         self.embedding_hidden_size = hidden_size
@@ -66,7 +69,7 @@ class Embedder(nn.Module):
         self.linear = nn.Linear(self.embedding_hidden_size, self.embedding_size)
         if preprocessing is None:
             preprocessing = []
-        preprocessing_params = {'log_transform': False, 'proportion': False, 'standardize': False}
+        preprocessing_params = {'log': False, 'proportion': False, 'standardize': False}
         for key in preprocessing:
             preprocessing_params[key] = True
         self.preprocessing = Preprocessing(input_size, **preprocessing_params)
@@ -79,8 +82,9 @@ class Embedder(nn.Module):
         return self.linear(x)
 
 
-def backward_markov(input_size, effective_K, embedder_type, embedding_size, n_embedding_layers=2,
-                    n_embedding_neurons=32, embedder_dropout=0.1, n_after_layers=1, preprocessing=('log_transform',)):
+def amortized_backward_markov(input_size, effective_K, embedder_type, embedding_size, n_embedding_layers=2,
+                              n_embedding_neurons=32, embedder_dropout=0.1, n_after_layers=1,
+                              preprocessing=('log',)):
     # The first layer is only getting X^{1:L}
     # The other layers are getting X^{1:l} and Z^{l + 1}
     # In the end, the size of the input "l" is K_{l + 1} + sum_{j=1}^{l} K_{j}
@@ -114,6 +118,90 @@ def backward_markov(input_size, effective_K, embedder_type, embedding_size, n_em
         )
         S_fun_list.append(
             nn.Sequential(
+                *progressive_NN(input_size, effective_K[i], n_after_layers),
+                BoundLayer(np.log(1e-8), np.log(10.), smoothing_factor=0.1)
+            )
+        )
+
+    m_fun = nn.ModuleList(m_fun_list)
+    S_fun = nn.ModuleList(S_fun_list)
+    return m_fun, S_fun, embedder
+
+
+def weak_backward_markov(K, effective_K, n_layers, preprocessing=('log',)):
+    # The first layer is only getting X^{L}
+    # The other layers are getting X^{l} and Z^{l + 1}
+    # In the end, the size of the input "l" is K_{l + 1} + K_{l}
+    preprocessing_params = {'log': False, 'proportion': False, 'standardize': False}
+    if preprocessing is not None:
+        for key in preprocessing:
+            preprocessing_params[key] = True
+    m_fun_list = []
+    S_fun_list = []
+    for i in range(len(effective_K)):
+        # The input size of X^{1:l} would be sum(self.K[:i+1])
+        # But we only give X^{l} in the weak amortized framework
+        input_size = K[i]
+        # If we are not at the last layer, the model also gets Z^{l+1} as input
+        if i != len(effective_K) - 1:
+            input_size += effective_K[i + 1]
+        m_fun_list.append(
+            nn.Sequential(
+                PartialPreprocessing(K[i], **preprocessing_params),
+                *progressive_NN(input_size, effective_K[i], n_layers),
+                BoundLayer(-100, 25, smoothing_factor=0.05)
+            )
+        )
+        S_fun_list.append(
+            nn.Sequential(
+                PartialPreprocessing(K[i], **preprocessing_params),
+                *progressive_NN(input_size, effective_K[i], n_layers),
+                BoundLayer(np.log(1e-8), np.log(10.), smoothing_factor=0.1)
+            )
+        )
+
+    m_fun = nn.ModuleList(m_fun_list)
+    S_fun = nn.ModuleList(S_fun_list)
+    return m_fun, S_fun
+
+
+def residual_backward_markov(input_size, K, effective_K, embedder_type, embedding_size, n_embedding_layers=2,
+                             n_embedding_neurons=32, embedder_dropout=0.1, n_after_layers=1,
+                             preprocessing=('log',)):
+    # The first layer is only getting embedder(X^{1:L}), X^{l}
+    # The other layers are getting embedder(X^{1:l}), X^{l} and Z^{l + 1}
+    # In the end, the size of the input "l" is K_{l + 1} + input_size + K_{l}
+    preprocessing_params = {'log': False, 'proportion': False, 'standardize': False}
+    for key in preprocessing:
+        preprocessing_params[key] = True
+    embedder = Embedder(
+        input_size=input_size,
+        embedding_size=embedding_size,
+        hidden_size=n_embedding_neurons,
+        n_layers=n_embedding_layers,
+        recurrent_network=embedder_type,
+        dropout=embedder_dropout,
+        preprocessing=preprocessing
+    )
+    m_fun_list = []
+    S_fun_list = []
+    for i in range(len(effective_K)):
+        # The input size of X^{1:l} would be sum(self.K[:i+1])
+        # But it's simpler now with the embedding!
+        input_size = K[i] + embedding_size
+        # If we are not at the last layer, the model also gets Z^{l+1} as input
+        if i != len(effective_K) - 1:
+            input_size += effective_K[i + 1]
+        m_fun_list.append(
+            nn.Sequential(
+                PartialPreprocessing(K[i], **preprocessing_params),
+                *progressive_NN(input_size, effective_K[i], n_after_layers),
+                BoundLayer(-100, 25, smoothing_factor=0.05)
+            )
+        )
+        S_fun_list.append(
+            nn.Sequential(
+                PartialPreprocessing(K[i], **preprocessing_params),
                 *progressive_NN(input_size, effective_K[i], n_after_layers),
                 BoundLayer(np.log(1e-8), np.log(10.), smoothing_factor=0.1)
             )
@@ -174,7 +262,7 @@ class BranchMarkovLayer(nn.Module):
                 X_branch.append(X_1tol[:, parent_layer, parent.layer_index].unsqueeze(-1))
                 parent = parent.parent
             X_branch = torch.cat(X_branch, dim=1)
-            preprocessing = Preprocessing(X_branch.size(1), log_transform=True, standardize=True)
+            preprocessing = Preprocessing(X_branch.size(1), log=True, standardize=True)
             X_branch = preprocessing(X_branch)
             data = torch.cat([Z_children, X_branch], dim=1)
             m += [self.m[i](data)]
