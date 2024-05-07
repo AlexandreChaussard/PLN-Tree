@@ -135,10 +135,10 @@ class _PLNTree(ABC, BaseModel):
         self.variational_approx = VariationalApproximation(variational_approx)
         # If the variational approximation is mean field, it only depends on the X^l
         if self.variational_approx == VariationalApproximation.MEAN_FIELD:
-            proportion = offset_method != "zeros"
             if variational_approx_params is None:
-                variational_approx_params = {'n_variational_layers': 2}
-            self.m_fun, self.S_fun = mean_field(self.K, self.effective_K, **variational_approx_params, proportion=proportion)
+                preprocessing = ['proportion'] if offset_method != 'zeros' else None
+                variational_approx_params = {'n_variational_layers': 2, 'preprocessing': preprocessing}
+            self.m_fun, self.S_fun = mean_field(self.K, self.effective_K, **variational_approx_params)
 
     @abstractmethod
     def forward(self, X):

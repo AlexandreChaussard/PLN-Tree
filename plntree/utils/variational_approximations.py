@@ -4,7 +4,7 @@ import numpy as np
 
 from enum import Enum
 
-from plntree.utils.model_utils import Embedder, BoundLayer, Preprocessing, progressive_NN
+from plntree.utils.model_utils import BoundLayer, Preprocessing, progressive_NN
 
 
 class VariationalApproximation(Enum):
@@ -13,11 +13,16 @@ class VariationalApproximation(Enum):
     BRANCH = "branch"
 
 
-def mean_field(K, effective_K, n_variational_layers, proportion=False):
+def mean_field(K, effective_K, n_variational_layers, preprocessing=None):
+    if preprocessing is None:
+        preprocessing = []
     # TODO: log transform in the non-offset case seems to decrease quality of the results, but why?
+    preprocessing_params = {'log_transform': False, 'proportion': False, 'standardize': False}
+    for key in preprocessing:
+        preprocessing_params[key] = True
     m_fun = nn.ModuleList([
         nn.Sequential(
-            Preprocessing(K[layer], log_transform=False, proportion=proportion, standardize=proportion),
+            Preprocessing(K[layer], **preprocessing_params),
             *progressive_NN(K[layer], effective_K[layer], n_variational_layers),
             BoundLayer(-100, 25, smoothing_factor=0.05)
         )
@@ -25,7 +30,7 @@ def mean_field(K, effective_K, n_variational_layers, proportion=False):
     ])
     S_fun = nn.ModuleList([
         nn.Sequential(
-            Preprocessing(K[layer], log_transform=False, proportion=proportion, standardize=proportion),
+            Preprocessing(K[layer], **preprocessing_params),
             *progressive_NN(K[layer], effective_K[layer], n_variational_layers),
             BoundLayer(np.log(1e-8), np.log(10.), smoothing_factor=0.1)
         )
@@ -34,7 +39,48 @@ def mean_field(K, effective_K, n_variational_layers, proportion=False):
     return m_fun, S_fun
 
 
-def backward_markov(input_size, effective_K, embedder_type, embedding_size, n_embedding_layers=2, n_embedding_neurons=32, embedder_dropout=0.1, n_after_layers=1):
+class Embedder(nn.Module):
+    def __init__(self, input_size, embedding_size, hidden_size, n_layers, recurrent_network="GRU", dropout=0.2, preprocessing=('log_transform',)):
+        super(Embedder, self).__init__()
+        self.embedding_size = embedding_size
+        self.embedding_hidden_size = hidden_size
+        if recurrent_network == "GRU":
+            self.rnn = nn.GRU(
+                input_size=input_size,
+                hidden_size=self.embedding_hidden_size,
+                num_layers=n_layers,
+                batch_first=True,
+                dropout=dropout
+            )
+        elif recurrent_network == "LSTM":
+            self.rnn = nn.LSTM(
+                input_size=input_size,
+                hidden_size=self.embedding_hidden_size,
+                num_layers=n_layers,
+                batch_first=True,
+                dropout=dropout
+            )
+        else:
+            raise ValueError("Type of RNN not recognized. Choose between 'GRU' and 'LSTM'.")
+        self.batch_norm = nn.BatchNorm1d(self.embedding_hidden_size)
+        self.linear = nn.Linear(self.embedding_hidden_size, self.embedding_size)
+        if preprocessing is None:
+            preprocessing = []
+        preprocessing_params = {'log_transform': False, 'proportion': False, 'standardize': False}
+        for key in preprocessing:
+            preprocessing_params[key] = True
+        self.preprocessing = Preprocessing(input_size, **preprocessing_params)
+
+    def forward(self, X):
+        x = self.preprocessing(X)
+        x = self.rnn(x)[0][:, -1, :]
+        x = nn.functional.relu(x)
+        x = self.batch_norm(x)
+        return self.linear(x)
+
+
+def backward_markov(input_size, effective_K, embedder_type, embedding_size, n_embedding_layers=2,
+                    n_embedding_neurons=32, embedder_dropout=0.1, n_after_layers=1, preprocessing=('log_transform',)):
     # The first layer is only getting X^{1:L}
     # The other layers are getting X^{1:l} and Z^{l + 1}
     # In the end, the size of the input "l" is K_{l + 1} + sum_{j=1}^{l} K_{j}
@@ -48,7 +94,8 @@ def backward_markov(input_size, effective_K, embedder_type, embedding_size, n_em
         hidden_size=n_embedding_neurons,
         n_layers=n_embedding_layers,
         recurrent_network=embedder_type,
-        dropout=embedder_dropout
+        dropout=embedder_dropout,
+        preprocessing=preprocessing
     )
     m_fun_list = []
     S_fun_list = []

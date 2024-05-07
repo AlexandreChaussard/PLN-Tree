@@ -304,7 +304,7 @@ class Preprocessing(nn.Module):
     def forward(self, X):
         x = X.clone()
         if self.proportion:
-            x / torch.sum(x, dim=0, keepdim=True)
+            x = x / (torch.sum(x, dim=0, keepdim=True) + 1e-15)
         if self.log_transform is not None and not self.proportion:
             x = self.log_transform(x)
         if self.standardize is not None:
@@ -314,42 +314,6 @@ class Preprocessing(nn.Module):
             x_min = X.min()
             x = (x - x_min) / (x_max - x_min)
         return x
-
-
-class Embedder(nn.Module):
-
-    def __init__(self, input_size, embedding_size, hidden_size, n_layers, recurrent_network="GRU", dropout=0.2):
-        super(Embedder, self).__init__()
-        self.embedding_size = embedding_size
-        self.embedding_hidden_size = hidden_size
-        if recurrent_network == "GRU":
-            self.rnn = nn.GRU(
-                input_size=input_size,
-                hidden_size=self.embedding_hidden_size,
-                num_layers=n_layers,
-                batch_first=True,
-                dropout=dropout
-            )
-        elif recurrent_network == "LSTM":
-            self.rnn = nn.LSTM(
-                input_size=input_size,
-                hidden_size=self.embedding_hidden_size,
-                num_layers=n_layers,
-                batch_first=True,
-                dropout=dropout
-            )
-        else:
-            raise ValueError("Type of RNN not recognized. Choose between 'GRU' and 'LSTM'.")
-        self.batch_norm = nn.BatchNorm1d(self.embedding_hidden_size)
-        self.linear = nn.Linear(self.embedding_hidden_size, self.embedding_size)
-        self.preprocessing_LSTM = Preprocessing(input_size, log_transform=True, standardize=False)
-
-    def forward(self, X):
-        x = self.preprocessing_LSTM(X)
-        x = self.rnn(x)[0][:, -1, :]
-        x = nn.functional.relu(x)
-        x = self.batch_norm(x)
-        return self.linear(x)
 
 
 class ConstantSum(nn.Module):

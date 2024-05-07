@@ -86,6 +86,7 @@ class PLNTree(nn.Module, _PLNTree):
                     'n_embedding_layers': 2,
                     'n_embedding_neurons': 32,
                     'n_after_layers': 1,
+                    'preprocessing': ['log_transform']
                 }
             self.m_fun, self.S_fun, self.embedder = backward_markov(
                 input_size=max(self.K),
