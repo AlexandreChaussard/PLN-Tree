@@ -2,6 +2,7 @@ import numpy as np
 import torch
 import pandas as pd
 from plntree.utils.tree_utils import Tree
+from plntree.utils import seed_all
 import warnings
 import os
 
@@ -184,7 +185,7 @@ def hierarchical_dataset(abundance_df, taxonomy, offset_layer):
     return X, patient_ids
 
 
-def rarefy(abundance_df, offset):
+def rarefy(abundance_df, offset, seed=None):
     """
     Rarefy the abundance dataframe
     Parameters
@@ -195,6 +196,7 @@ def rarefy(abundance_df, offset):
     -------
     rarefied_df
     """
+    seed_all(seed)
     N = np.exp(offset)
     rarefied_df = abundance_df.copy()
     # Normalize the abundances (in case it's not already been done)

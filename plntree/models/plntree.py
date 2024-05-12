@@ -5,6 +5,7 @@ from torch import transpose
 from plntree.models import pln_lib
 
 from plntree.models.base_plntree import _PLNTree
+from plntree.utils import seed_all
 from plntree.utils.model_utils import (PLNParameter, BoundLayer, offsets, PositiveDefiniteMatrix,
                                    Vect1OrthogonalProjectorHierarchical, progressive_NN, is_not_inf_not_nan)
 
@@ -25,11 +26,12 @@ class PLNTree(nn.Module, _PLNTree):
             diagonal_model=False,
             positive_fun="softplus",
             use_smart_init=True,
-            variational_approx="backward",
+            variational_approx="amortized_backward",
             offset_method='zeros',
             n_latent_layers=1,
             variational_approx_params=None,
-            identifiable=True
+            identifiable=True,
+            seed=None
     ):
         super(PLNTree, self).__init__()
         _PLNTree.__init__(self,
@@ -37,7 +39,7 @@ class PLNTree(nn.Module, _PLNTree):
                           mean_bounds=mean_bounds, diagonal_model=diagonal_model,
                           use_smart_init=use_smart_init, variational_approx=variational_approx,
                           offset_method=offset_method, variational_approx_params=variational_approx_params,
-                          pln_layer=0,
+                          pln_layer=0, seed=seed
                           )
         self.diag_smoothing_factor = diag_smoothing_factor
 
@@ -129,7 +131,8 @@ class PLNTree(nn.Module, _PLNTree):
                 layer_masks=self.layer_masks,
             )
 
-    def posterior_latent_sample(self, X):
+    def posterior_latent_sample(self, X, seed=None):
+        seed_all(seed)
         Z, m, log_S = [], [], []
         batch_size = X.size(0)
 
@@ -165,7 +168,7 @@ class PLNTree(nn.Module, _PLNTree):
                     if self.variational_approx == VariationalApproximation.AMORTIZED_BACKWARD:
                         X_1tol = X[:, :layer + 1, :].type(torch.float64)
                     else:
-                        X_1tol = X[:, :layer, :].type(torch.float64)
+                        X_1tol = X[:, :layer + 1, :].type(torch.float64)
                     X_embed = self.embedder(X_1tol)
                     if self.variational_approx == VariationalApproximation.RESIDUAL_BACKWARD:
                         X_l_flat = X[:, layer, :self.K[layer]].type(torch.float64)
@@ -227,7 +230,7 @@ class PLNTree(nn.Module, _PLNTree):
 
         return torch.stack(Z, dim=1), m, log_S
 
-    def forward(self, X, posterior_latent_sample=None):
+    def forward(self, X, posterior_latent_sample=None, seed=None):
         mu, Omega = [], []
         batch_size = X.size(0)
 
@@ -235,7 +238,7 @@ class PLNTree(nn.Module, _PLNTree):
         if posterior_latent_sample is None:
             posterior_latent_sample = self.posterior_latent_sample
 
-        Z, m, log_S = posterior_latent_sample(X)
+        Z, m, log_S = posterior_latent_sample(X, seed=seed)
 
         # We compute the parameters of the posterior after Z, as it may have been computed backward
         for layer, mask in enumerate(self.layer_masks):
@@ -268,23 +271,17 @@ class PLNTree(nn.Module, _PLNTree):
         self.omega_fun[0].data = torch.inverse(Sigma_hat.mean(axis=0))
 
     def smart_init(self, dataloader):
-        # TODO: Choose between manual or PLN init, but so far manual is better
-        manual = True
-        if manual:
-            X = torch.cat([data[0][:, 0, :self.K[0]] for data in dataloader], dim=0)
-            log_X_centered = torch.log(X + 1e-8) - torch.log(X + 1e-8).mean(axis=0)
-            n_samples = X.size(0)
-            Sigma_hat = log_X_centered.T @ log_X_centered / (n_samples - 1) + self.diag_smoothing_factor * torch.eye(self.K[0])
-            self.omega_fun[0].data = torch.inverse(Sigma_hat)
-            self.mu_fun[0].data = torch.log(X + 1e-8).mean(axis=0)
-        else:
-            X_base = torch.cat([data[0] for data in dataloader], dim=0)
-            pln = pln_lib.fit(X=X_base, layer=0, K=self.K, tol=1e-8)
-            self.mu_fun[0].data = torch.tensor(pln_lib.mu(pln), dtype=self.mu_fun[0].data.dtype)
-            self.omega_fun[0].data = torch.tensor(pln_lib.omega(pln), dtype=self.omega_fun[0].data.dtype)
+        X = torch.cat([data[0][:, 0, :self.K[0]] for data in dataloader], dim=0)
+        log_X_centered = torch.log(X + 1e-8) - torch.log(X + 1e-8).mean(axis=0)
+        n_samples = X.size(0)
+        Sigma_hat = log_X_centered.T @ log_X_centered / (n_samples - 1) + self.diag_smoothing_factor * torch.eye(
+            self.K[0])
+        self.omega_fun[0].data = torch.inverse(Sigma_hat)
+        self.mu_fun[0].data = torch.log(X + 1e-8).mean(axis=0)
         return self
 
-    def sample(self, batch_size, offsets=None):
+    def sample(self, batch_size, offsets=None, seed=None):
+        seed_all(seed)
         K_max = max(self.K)
         n_layers = len(self.K)
         if offsets is None:
@@ -337,7 +334,7 @@ class PLNTree(nn.Module, _PLNTree):
             print("Generated batch size:", Z.size(0))
 
         # Simply unpack Z as X
-        X = self.decode(Z, O)
+        X = self.decode(Z, O, seed=seed)
         return X, Z, O
 
     def mu_l(self, layer, Z_l_prev, batch_size=1):

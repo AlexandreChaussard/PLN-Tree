@@ -6,10 +6,12 @@ from plntree.models.plntree import PLNTree
 from plntree.utils.model_utils import Preprocessing, offsets
 
 from plntree.utils.classifiers import LSTMClassifier
+from plntree.utils import seed_all
 
 
 class PLNTreeClassifier(PLNTree):
-
+    # TODO: Update with current PLNTree implementation
+    #       Implement the seed
     def __init__(
             self,
             tree,
@@ -25,7 +27,8 @@ class PLNTreeClassifier(PLNTree):
             n_latent_layers=1,
             classifier='lstm',
             normalize=True,
-            standardize=False
+            standardize=False,
+            seed=None
     ):
         if offset_method == 'gmm':
             offset_method = f'gmm_{n_classes}'
@@ -41,6 +44,7 @@ class PLNTreeClassifier(PLNTree):
             offset_method=offset_method,
             n_variational_layers=n_variational_layers,
             n_latent_layers=n_latent_layers,
+            seed=seed
         )
         BaseModel.__init__(self, True)
         self.n_classes = n_classes

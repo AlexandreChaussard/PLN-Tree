@@ -4,14 +4,14 @@ import random
 import networkx as nx
 import torch
 from torch.utils.data import DataLoader, TensorDataset
+from plntree.utils import seed_all
 
 
 def generate_hierarchical_tree(nodes_per_layer,
                                random_strategy=np.random.random,
                                min_children=1,
                                seed=None):
-    if seed is not None:
-        np.random.seed(seed)
+    seed_all(seed)
     K = np.array(nodes_per_layer).sum()
     G = np.zeros((K, K))
 
@@ -74,8 +74,7 @@ def generate_adjacency_matrix(n_nodes, args=(.5,), method="erdos_renyi", seed=No
 
 def generate_community_adjacency_matrix(n_nodes_per_community, n_random_edges, method="erdos_renyi", method_args=(.5,),
                                         seed=None):
-    if seed is not None:
-        np.random.seed(seed)
+    seed_all(seed)
 
     G = None
     for n_nodes in n_nodes_per_community:
@@ -102,8 +101,7 @@ def generate_precision_matrix(adjacency_matrix, conditioning=0.1, correlation=0.
 
 
 def load_artificial_data(model, n_data, batch_size, seed=None, model_args=None):
-    if seed is not None:
-        torch.manual_seed(seed)
+    seed_all(seed)
     if model_args is not None:
         X, Z, O = model.sample(n_data, **model_args)
     else:
@@ -115,7 +113,8 @@ def load_artificial_data(model, n_data, batch_size, seed=None, model_args=None):
 
 def generate_markov_dirichlet_hierarchical_data(n_samples, tree, selected_layers, Omega, mu, offset_total_count,
                                                 offset_probs,
-                                                alpha_structures):
+                                                alpha_structures, seed=None):
+    seed_all(seed)
     # Computing the counts parameters
     log_a = torch.distributions.MultivariateNormal(torch.tensor(mu), precision_matrix=torch.tensor(Omega)).sample(
         (n_samples,))

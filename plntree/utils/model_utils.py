@@ -6,6 +6,11 @@ from torch.distributions import MultivariateNormal
 import numpy as np
 
 
+def seed_all(seed):
+    if seed is None:
+        return
+    torch.manual_seed(seed)
+    np.random.seed(seed)
 def fit(model, optimizer, data_train_loader, n_epoch, max_grad_norm=1., verbose=10, writer=None, writer_fun=None):
     losses = []
     model.smart_init(data_train_loader)

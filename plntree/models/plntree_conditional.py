@@ -6,6 +6,8 @@ from plntree.models.plntree_classifier import PLNTreeClassifier
 
 
 class PLNTreeConditional(PLNTreeClassifier):
+    # TODO: Update with current PLNTree implementation
+    #       Implement the seed
 
     def __init__(
             self,

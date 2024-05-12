@@ -1,10 +1,12 @@
 from plntree.utils import model_utils
-
+from plntree.utils import seed_all
 
 class BaseModel:
 
-    def __init__(self, classifier=False):
+    def __init__(self, classifier=False, seed=None):
         self.classifier = classifier
+        self.seed = seed
+        seed_all(seed)
 
     def fit(self, optimizer, dataloader, n_epoch, max_grad_norm=1., verbose=10, writer=None, writer_fun=None):
         self.smart_init(dataloader)

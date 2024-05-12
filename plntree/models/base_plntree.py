@@ -11,6 +11,7 @@ from plntree.utils.model_utils import batch_trace, BoundLayer, offsets, SimplexP
     sample_gaussian_mixture, density_gaussian_mixture
 from plntree.utils.tree_utils import partial_abundance_matrix_to_tree
 from plntree.utils.variational_approximations import VariationalApproximation, mean_field
+from plntree.utils import seed_all
 
 
 class _PLNTree(ABC, BaseModel):
@@ -28,8 +29,9 @@ class _PLNTree(ABC, BaseModel):
             offset_method="zeros",
             variational_approx_params=None,
             pln_layer=0,
+            seed=None
     ):
-        BaseModel.__init__(self, False)
+        BaseModel.__init__(self, False, seed)
         self.tree = tree
         self.diagonal_model = diagonal_model
         # Decide at which layer the PLN model is applied
@@ -141,13 +143,14 @@ class _PLNTree(ABC, BaseModel):
             self.m_fun, self.S_fun = mean_field(self.K, self.effective_K, **variational_approx_params)
 
     @abstractmethod
-    def forward(self, X):
+    def forward(self, X, seed=None):
         pass
 
-    def encode(self, X):
-        return self.forward(X)[:2]
+    def encode(self, X, seed=None):
+        return self.forward(X, seed=seed)[:2]
 
-    def decode(self, Z, O):
+    def decode(self, Z, O, seed=None):
+        seed_all(seed)
         X = torch.zeros_like(Z)
         batch_size = Z.size(0)
 
@@ -281,7 +284,8 @@ class _PLNTree(ABC, BaseModel):
         """
         pass
 
-    def posterior_sample_offsets(self, X):
+    def posterior_sample_offsets(self, X, seed=None):
+        seed_all(seed)
         if self.offset_method in ["zeros", "logsum"]:
             return offsets(X, method=self.offset_method), None
         elif self.offset_method == "constant":
@@ -307,7 +311,8 @@ class _PLNTree(ABC, BaseModel):
             return O, (offset_m, offset_log_s)
         return None
 
-    def sample_offsets(self, batch_size):
+    def sample_offsets(self, batch_size, seed=None):
+        seed_all(seed)
         if self.offset_method == "zeros":
             return torch.zeros(batch_size)
         if self.offset_method == "constant":

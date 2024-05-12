@@ -1,6 +1,7 @@
 import torch
 from pyPLNmodels import Pln
 import numpy as np
+from plntree.utils import seed_all
 
 
 def fit(X, layer, K, tol=1e-15):
@@ -22,7 +23,8 @@ def omega(pln):
     return torch.inverse(sigma(pln))
 
 
-def sample(pln, n_samples, offsets=None):
+def sample(pln, n_samples, offsets=None, seed=None):
+    seed_all(seed)
     means = mu(pln)
     cov = sigma(pln)
     X = np.zeros((n_samples, cov.shape[1]), dtype=np.float64)
@@ -51,7 +53,8 @@ def sample(pln, n_samples, offsets=None):
     return X, Z
 
 
-def encode(pln):
+def encode(pln, seed=None):
+    seed_all(seed)
     M = pln.latent_mean
     S = pln.latent_sqrt_var ** 2
     Z = np.zeros((M.shape[0], M.shape[1]))
@@ -63,7 +66,8 @@ def encode(pln):
     return Z
 
 
-def decode(Z):
+def decode(Z, seed=None):
+    seed_all(seed)
     X = np.zeros_like(Z, dtype=np.float64)
     for i in range(len(Z)):
         X[i] = np.random.poisson(np.exp(Z[i].astype(np.float64)))
