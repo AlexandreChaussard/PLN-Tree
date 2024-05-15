@@ -28,8 +28,8 @@ def load_pkl(prefix, name):
     return pickle.load(open(fileName, 'rb'))
 
 
-def savefig(name, extension='pdf', bbox_inches='tight'):
-    plt.savefig(f"experiments/{name}.{extension}")
+def savefig(name, extension='pdf'):
+    plt.savefig(f"experiments/{name}.{extension}", bbox_inches='tight', dpi=100)
 
 
 def generate_hierachical_tree(K, min_children=1, random_strategy=np.random.randn, seed=None):
@@ -113,7 +113,7 @@ def vizualize_entities_distributions(model, entries_list, groups, title='Abundan
         sns.boxplot(x='Bacteria', y='Value', hue='Group', data=df_melted, fliersize=0.5, showfliers=False,
                     ax=axs[layer])
         [axs[layer].axvline(x + .5, color='gray', linestyle='--', alpha=0.25) for x in axs[layer].get_xticks()]
-        axs[layer].set_title(f'{title} distribution at layer {layer + data_layer_shift}')
+        axs[layer].set_title(f'$\ell = {layer + data_layer_shift}$', fontsize=12)
         if layer < len(model.K) - 1:
             axs[layer].set_xlabel('')
         else:
@@ -121,6 +121,10 @@ def vizualize_entities_distributions(model, entries_list, groups, title='Abundan
         plt.xticks(rotation=-90)
         for i, tick in enumerate(axs[layer].get_xticklabels()):
             tick.set_color(ticks_colors[i])
+    lines, labels = axs[0].get_legend_handles_labels()
+    fig.legend(lines, labels, loc='lower center', ncol=len(entries_list), fontsize=13)
+    for ax in axs:
+        ax.legend_ = None
     plt.subplots_adjust(hspace=0.16)
 
 
