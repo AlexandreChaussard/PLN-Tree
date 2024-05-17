@@ -5,29 +5,25 @@ from plntree.models.base import BaseModel
 from plntree.models.plntree import PLNTree
 from plntree.utils.model_utils import Preprocessing, offsets
 
-from plntree.utils.classifiers import LSTMClassifier
 from plntree.utils import seed_all
 
 
 class PLNTreeClassifier(PLNTree):
-    # TODO: Update with current PLNTree implementation
-    #       Implement the seed
     def __init__(
             self,
             tree,
             n_classes,
             selected_layers=None,
-            diag_smoothing_factor=0.1,
+            diag_smoothing_factor=1e-3,
             diagonal_model=False,
             positive_fun="softplus",
             use_smart_init=True,
             variational_approx="mean_field",
+            variational_approx_params=None,
             offset_method='zeros',
-            n_variational_layers=1,
+            identifiable=True,
             n_latent_layers=1,
-            classifier='lstm',
-            normalize=True,
-            standardize=False,
+            classifier=None,
             seed=None
     ):
         if offset_method == 'gmm':
@@ -42,38 +38,32 @@ class PLNTreeClassifier(PLNTree):
             use_smart_init=use_smart_init,
             variational_approx=variational_approx,
             offset_method=offset_method,
-            n_variational_layers=n_variational_layers,
             n_latent_layers=n_latent_layers,
+            variational_approx_params=variational_approx_params,
+            identifiable=identifiable,
             seed=seed
         )
         BaseModel.__init__(self, True)
         self.n_classes = n_classes
-
-        # Define the parameters of the classifier which is an LSTM
-        self.preprocessing = Preprocessing(max(self.K), standardize=standardize, normalize=normalize)
-        if classifier == 'lstm':
-            self.classifier = LSTMClassifier(max(self.K), 32, 2, n_classes)
-        else:
-            self.classifier = classifier
+        self.classifier = classifier
 
     def pi(self, Z):
-        Z = self.preprocessing(Z)
         return self.classifier(Z)
 
-    def forward(self, X, Y):
+    def forward(self, X, Y, seed=None):
         # Compute the label conditional outputs
-        output = PLNTree.forward(self, X)
+        output = PLNTree.forward(self, X, seed=seed)
         Z = output[0]
         # Compute the probabilities of each class
         probas = self.pi(Z)
         # Compute the offsets
-        O, offset_params = self.posterior_sample_offsets(X, Y)
+        O, offset_params = self.posterior_sample_offsets(X, Y, seed=seed)
         return Z, O, *output[2:-1], offset_params, probas
 
-    def encode(self, X, Y):
-        output = PLNTree.forward(self, X)
+    def encode(self, X, Y, seed=None):
+        output = PLNTree.forward(self, X, seed=seed)
         Z = output[0]
-        O, offset_params = self.posterior_sample_offsets(X, Y)
+        O, offset_params = self.posterior_sample_offsets(X, Y, seed=seed)
         return Z, O
 
     def objective(self, X, Y, output):
@@ -90,9 +80,10 @@ class PLNTreeClassifier(PLNTree):
         output_generative = output[:-1]
         PLNTree.update_close_forms(self, X, output_generative)
 
-    def predict_proba(self, X, n_sampling=20):
+    def predict_proba(self, X, n_sampling=20, seed=None):
         # Perform importance sampling to estimate the probabilities
         # For each sample i, draw N_sampling Z to compute E_Z[pi(Z)]
+        seed_all(seed)
         probas = 0
         for j in range(n_sampling):
             Z, O = self.encode(X, None)
@@ -100,10 +91,11 @@ class PLNTreeClassifier(PLNTree):
         probas /= n_sampling
         return probas
 
-    def predict(self, X, n_sampling=20):
-        return self.predict_proba(X, n_sampling=n_sampling).argmax(dim=1)
+    def predict(self, X, n_sampling=20, seed=None):
+        return self.predict_proba(X, n_sampling=n_sampling, seed=seed).argmax(dim=1)
 
-    def posterior_sample_offsets(self, X, Y=None):
+    def posterior_sample_offsets(self, X, Y=None, seed=None):
+        seed_all(seed)
         if self.offset_method == "gmm":
             sum_log_X = torch.log(X[:, 0, :self.K[0]].sum(dim=1) + 1e-8).unsqueeze(-1)
             # Get the component associated to each sample
@@ -114,9 +106,10 @@ class PLNTreeClassifier(PLNTree):
             # Sample the offset using a gaussian with the computed parameters
             O = offset_m + torch.exp(0.5 * offset_log_s) * torch.randn_like(sum_log_X)
             return O, (offset_m, offset_log_s)
-        return PLNTree.posterior_sample_offsets(self, X)
+        return PLNTree.posterior_sample_offsets(self, X, seed=seed)
 
-    def sample(self, batch_size, offsets=None):
+    def sample(self, batch_size, offsets=None, seed=None):
+        seed_all(seed)
         X, Z, O = PLNTree.sample(self, batch_size, offsets)
         Y = torch.distributions.Categorical(self.pi(Z)).sample()
         return X, Y, Z, O

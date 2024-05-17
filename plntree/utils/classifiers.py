@@ -1,15 +1,23 @@
 import torch.nn as nn
 
 
-class LSTMClassifier(nn.Module):
-    def __init__(self, input_size, hidden_size, n_layers, n_classes):
-        super(LSTMClassifier, self).__init__()
-        self.lstm = nn.LSTM(
-            input_size=input_size,
-            hidden_size=hidden_size,
-            num_layers=n_layers,
-            batch_first=True
-        )
+class RNNClassifier(nn.Module):
+    def __init__(self, rnn_type, input_size, hidden_size, n_layers, n_classes):
+        super(RNNClassifier, self).__init__()
+        if rnn_type == 'lstm':
+            self.rnn = nn.LSTM(
+                input_size=input_size,
+                hidden_size=hidden_size,
+                num_layers=n_layers,
+                batch_first=True
+            )
+        else:
+            self.rnn = nn.GRU(
+                input_size=input_size,
+                hidden_size=hidden_size,
+                num_layers=n_layers,
+                batch_first=True
+            )
         self.classifier = nn.Sequential(
             nn.Linear(hidden_size, hidden_size),
             nn.ReLU(),
@@ -18,7 +26,7 @@ class LSTMClassifier(nn.Module):
         )
 
     def forward(self, X):
-        X = self.lstm(X)[0][:, -1, :]
+        X = self.rnn(X)[0][:, -1, :]
         return self.classifier(X)
 
 
