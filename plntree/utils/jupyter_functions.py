@@ -13,6 +13,8 @@ from plntree.data import artificial_loader
 from plntree.models import pln_lib
 from plntree.utils import tree_utils
 from plntree.utils import seed_all
+from plntree.utils.functions import remove_outliers_iqr
+
 
 def save_pkl(obj, prefix, name):
     folder = './experiments/saves'
@@ -260,7 +262,7 @@ def add_offset(Z, O):
     return Z_offset
 
 
-def plot_alpha_diversity(X_list, taxonomy, offset_layer=0, colors=None, groups_name=None, style='violin', saveName=''):
+def plot_alpha_diversity(X_list, taxonomy, offset_layer=0, colors=None, groups_name=None, style='violin', saveName='', filter=('Chao1',), xticks_rot=45):
     groups = []
     for i, X in enumerate(X_list):
         groups += [groups_name[i]] * len(X)
@@ -273,10 +275,13 @@ def plot_alpha_diversity(X_list, taxonomy, offset_layer=0, colors=None, groups_n
     dataset = torch.cat([pad(X, offset_layer) for X in X_list], dim=0)
     K = list(taxonomy.getLayersWidth().values())[offset_layer:]
     alpha = metrics_viz.alpha_metrics(taxonomy, 0)
+    # filter out keys in filter list
+    alpha = {k: v for k, v in alpha.items() if k not in filter}
     fig, axs = plt.subplots(len(alpha), len(K), figsize=(15, 8))
     for layer, K_l in enumerate(K):
 
         alpha = metrics_viz.alpha_metrics(taxonomy, layer + offset_layer)
+        alpha = {k: v for k, v in alpha.items() if k not in filter}
 
         for i, name in enumerate(alpha.keys()):
             metric = alpha[name]
@@ -299,9 +304,9 @@ def plot_alpha_diversity(X_list, taxonomy, offset_layer=0, colors=None, groups_n
 
             # Rotate x-axis tick labels
             if i == len(alpha) - 1:
-                axs[i][layer].set_xticklabels(axs[i][layer].get_xticklabels(), rotation=45)
+                axs[i][layer].set_xticklabels(axs[i][layer].get_xticklabels(), rotation=xticks_rot)
             else:
-                axs[i][layer].set_xticklabels([], rotation=45)
+                axs[i][layer].set_xticklabels([], rotation=xticks_rot)
             # Show gridaxs[i][layer].set_xticklabels(axs[i][layer].get_xticklabels(), rotation=45) and set it below the boxplots
             axs[i][layer].grid(True, which='both', linestyle='--', linewidth=0.5)
             axs[i][layer].set_axisbelow(True)

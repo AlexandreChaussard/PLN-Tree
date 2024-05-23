@@ -1,11 +1,11 @@
+import hamiltorch
+import numpy as np
 import torch
 import torch.nn as nn
-import numpy as np
-import hamiltorch
 
 from plntree.models.plntree import PLNTree
 from plntree.models.plntree_classifier import PLNTreeClassifier
-from plntree.utils import seed_all
+from plntree.utils import seed_all, functions
 
 
 class PLNTreeConditional(PLNTreeClassifier):
@@ -48,7 +48,7 @@ class PLNTreeConditional(PLNTreeClassifier):
         seeds = [None] * n_classes
         if seed is not None:
             seed_all(seed)
-            seeds = np.random.randint(0, 2 ** 32, n_classes)
+            seeds = np.random.randint(0, 10000, n_classes, dtype=int)
         # We need to define a variational approximation for each class (conditional variational approximation)
         self.conditional_forward_list = nn.ModuleList([
             PLNTree(
@@ -63,8 +63,8 @@ class PLNTreeConditional(PLNTreeClassifier):
                 n_latent_layers=n_latent_layers,
                 variational_approx_params=variational_approx_params,
                 identifiable=identifiable,
-                seed=seeds[_]
-            ) for _ in range(n_classes)
+                seed=seeds[i]
+            ) for i in range(n_classes)
         ])
 
     def conditional_forward(self, X, Y, seed=None):
@@ -165,42 +165,37 @@ class PLNTreeConditional(PLNTreeClassifier):
         we can target the joint law log p(Z, X) instead, easily computed with the decomposition
         log p(Z, X) = log p(Z) + log p(X|Z)
         """
+        if len(X.shape) == 2:
+            X = X.unsqueeze(0)
         # Reformat Z to match the shape of the model
         Z = Z.view(*X.size())
         # Compute the PLN layer's distribution
         Z_1 = Z[:, 0, self.layer_masks[0]]
         X_1 = X[:, 0, self.layer_masks[0]]
-        eval = torch.distributions.Poisson(torch.exp(Z_1)).log_prob(X_1).sum()
+        eval = functions.log_pdf_pln(X_1, Z_1)
         # Compute the multinomial propagations distribution
-        for layer in range(0, len(self.L)):
-            for node in self.tree.getNodesAtDepth(layer):
+        for layer in range(0, len(self.K) - 1):
+            for node in self.tree.getNodesAtDepth(layer + self.selected_layers[0]):
                 children_index = [child.layer_index for child in node.children]
-                Z_child = Z[:, layer+1, children_index]
-                X_child = X[:, layer+1, children_index]
+                Z_child = Z[:, layer + 1, children_index]
+                X_child = X[:, layer + 1, children_index]
                 X_parent = X[:, layer, node.layer_index]
-                eval += torch.distributions.Multinomial(
-                    total_count=X_parent,
-                    probs=torch.nn.functional.softmax(Z_child, dim=1),
-                ).log_prob(X_child).sum()
+                eval += functions.log_pdf_multinomial_plntree(X_parent, X_child, Z_child)
         # Compute the latents distribution
         # Starting with the first layer which is Gaussian
-        eval += torch.distributions.MultivariateNormal(
-            loc=self.mu_fun[0],
-            precision_matrix=self.omega_fun[0],
-        ).log_prob(Z_1).sum()
+        eval += functions.log_pdf_multivariate_normal(self.mu_fun[0].data, self.omega_fun[0].data, Z_1)
         # The propagation is Gaussian Markov
-        for layer in range(0, len(self.L)-1):
+        for layer in range(0, len(self.K) - 1):
             Z_prev = Z[:, layer, self.layer_masks[layer]]
-            Z_cur = Z[:, layer+1, self.layer_masks[layer+1]]
-            eval += torch.distributions.MultivariateNormal(
-                loc=self.mu_fun[layer+1](Z_prev),
-                precision_matrix=self.omega_fun[layer+1](Z_prev),
-            ).log_prob(Z_cur).sum()
+            Z_cur = Z[:, layer + 1, self.layer_masks[layer + 1]]
+            mu_cur = self.mu_fun[layer + 1](Z_prev)
+            omega_cur = self.omega_fun[layer + 1](Z_prev)
+            eval += functions.log_pdf_multivariate_normal(mu_cur, omega_cur, Z_cur)
         return eval
 
     def predict_proba(self, X, n_sampling=20, hmc_step=0.3, hmc_n_steps=5, offsets=None, seed=None):
         seed_all(seed)
-        Z_init = self.sample(X.size(0), offsets=offsets)[2]
+        Z_init = self.sample(X.size(0), offsets=offsets)[2].view(-1)
         Z_hmc = hamiltorch.sample(
             log_prob_func=lambda Z: self.hmc_log_prob_target(Z, X),
             params_init=Z_init,

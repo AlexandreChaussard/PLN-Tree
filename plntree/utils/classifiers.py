@@ -1,9 +1,10 @@
 import torch.nn as nn
-
+from plntree.utils import seed_all
 
 class RNNClassifier(nn.Module):
-    def __init__(self, rnn_type, input_size, hidden_size, n_layers, n_classes):
+    def __init__(self, rnn_type, input_size, hidden_size, n_layers, n_classes, seed=None):
         super(RNNClassifier, self).__init__()
+        seed_all(seed)
         if rnn_type == 'lstm':
             self.rnn = nn.LSTM(
                 input_size=input_size,
@@ -31,8 +32,9 @@ class RNNClassifier(nn.Module):
 
 
 class DenseClassifier(nn.Module):
-    def __init__(self, input_size, hidden_sizes, n_classes, selected_layer=None):
+    def __init__(self, input_size, hidden_sizes, n_classes, selected_layer=None, seed=None):
         super(DenseClassifier, self).__init__()
+        seed_all(seed)
         hidden_sizes = [input_size] + hidden_sizes
         self.classifier = nn.Sequential(
             *[nn.Sequential(
