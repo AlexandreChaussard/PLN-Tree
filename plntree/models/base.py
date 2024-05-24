@@ -4,7 +4,7 @@ from plntree.utils import seed_all
 class BaseModel:
 
     def __init__(self, classifier=False, seed=None):
-        self.classifier = classifier
+        self.classifier_mode = classifier
         self.seed = seed
         seed_all(seed)
 

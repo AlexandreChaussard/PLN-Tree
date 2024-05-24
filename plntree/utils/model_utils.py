@@ -24,7 +24,7 @@ def fit(model, optimizer, data_train_loader, n_epoch, max_grad_norm=1., verbose=
                 X, O, Y = data
             optimizer.zero_grad()
 
-            if model.classifier:
+            if model.classifier_mode:
                 loss = model.objective(X, Y, model.forward(X, Y))
             else:
                 loss = model.objective(X, model.forward(X))
@@ -37,7 +37,7 @@ def fit(model, optimizer, data_train_loader, n_epoch, max_grad_norm=1., verbose=
             optimizer.step()
             # Further models specific steps
             if getattr(model, 'update_close_forms', None) is not None:
-                if model.classifier:
+                if model.classifier_mode:
                     model.update_close_forms(X, Y, model.forward(X, Y))
                 else:
                     model.update_close_forms(X, model.forward(X))
@@ -71,7 +71,7 @@ def fit_alternate(model, optimizer_theta, optimizer_phi, data_train_loader, n_ep
             optimizer_phi.zero_grad()
 
             # Compute the loss
-            if model.classifier:
+            if model.classifier_mode:
                 loss = model.objective(X, Y, *model.forward(X, Y))
             else:
                 loss = model.objective(X, *model.forward(X))
@@ -96,7 +96,7 @@ def fit_alternate(model, optimizer_theta, optimizer_phi, data_train_loader, n_ep
 
             # Further models specific steps
             if getattr(model, 'update_close_forms', None) is not None:
-                if model.classifier:
+                if model.classifier_mode:
                     model.update_close_forms(X, *model.forward(X, Y))
                 else:
                     model.update_close_forms(X, *model.forward(X))
@@ -282,7 +282,7 @@ def positive_output(input, function=None, function_args=()):
     if function == "smooth_abs":
         return torch.sqrt(torch.pow(input, 2) + 1e-8)
     else:
-        return input
+        return None
 
 
 class LogTransform(nn.Module):
@@ -423,7 +423,22 @@ class PositiveDefiniteMatrix(nn.Module):
         i = torch.arange(Omega.size(-1))
         Omega[:, i, i] = Omega[:, i, i] + self.min_diag
         if self.projector is not None:
-            Omega = torch.inverse(Omega)
+            try:
+                Omega = torch.inverse(Omega)
+            except:
+                print("Omega could not be inverted, here is the smallest eigenvalue:", torch.linalg.eigvalsh(Omega).min())
+                print("Minimum threshold is: ", self.min_diag)
+                print("The smallest determinant is: ", torch.det(Omega).min())
+                L_ = cholesky(L_vec)
+                batch_size = L_.size(0)
+                PL_ = self.projector.P.to(dtype=L_.dtype).unsqueeze(0).expand(batch_size, -1, -1) @ L_
+                Omega_ = PL_ @ PL_.mT
+                print('Cholesky without projection minimum eigen value is: ', torch.diagonal(L_, dim1=-1).min())
+                print("Projected Cholesky product minimum eigen value is: ", torch.linalg.eigvalsh(Omega).min())
+                print("Projector: \n", self.projector.P - self.projector.P.T)
+                print("Symmetry check: \n", Omega_ - Omega_.mT)
+                print("Projected Cholesky \n", PL_)
+                raise ValueError("Omega is singular.")
         return Omega
 
 

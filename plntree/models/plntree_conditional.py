@@ -193,7 +193,15 @@ class PLNTreeConditional(PLNTreeClassifier):
             eval += functions.log_pdf_multivariate_normal(mu_cur, omega_cur, Z_cur)
         return eval
 
-    def predict_proba(self, X, n_sampling=20, hmc_step=0.3, hmc_n_steps=5, offsets=None, seed=None):
+    def predict_proba(self, X, n_sampling=20, hmc_step=0.3, hmc_n_steps=5, sampler='HMC',
+                      hmc_args=None, offsets=None, seed=None):
+        if hmc_args is None:
+            hmc_args = {}
+        sampler_type = hamiltorch.Sampler.HMC
+        if sampler == 'NUTS':
+            sampler_type = hamiltorch.Sampler.HMC_NUTS
+        elif sampler == 'RMHMC':
+            sampler_type = hamiltorch.Sampler.RMHMC
         seed_all(seed)
         Z_init = self.sample(X.size(0), offsets=offsets)[2].view(-1)
         Z_hmc = hamiltorch.sample(
@@ -201,8 +209,11 @@ class PLNTreeConditional(PLNTreeClassifier):
             params_init=Z_init,
             num_samples=n_sampling,
             step_size=hmc_step,
-            num_steps_per_sample=hmc_n_steps
+            num_steps_per_sample=hmc_n_steps,
+            sampler=sampler_type,
+            **hmc_args
         )
+        Z_hmc = torch.cat(Z_hmc, dim=0)
         Z_hmc = Z_hmc.view(n_sampling, *X.size())
         probas = 0
         for Z_proposal in Z_hmc:
@@ -210,8 +221,10 @@ class PLNTreeConditional(PLNTreeClassifier):
         probas /= n_sampling
         return probas
 
-    def predict(self, X, n_sampling=20, n_iter_gibbs=20, seed=None):
-        return self.predict_proba(X, n_sampling=n_sampling, n_iter_gibbs=n_iter_gibbs, seed=seed).argmax(dim=1)
+    def predict(self, X, predict_proba_args=None, seed=None):
+        if predict_proba_args is None:
+            predict_proba_args = {}
+        return self.predict_proba(X, seed=seed, **predict_proba_args).argmax(dim=1)
 
     def sample(self, batch_size, offsets=None, seed=None):
         seed_all(seed)
