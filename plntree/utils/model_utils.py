@@ -435,8 +435,8 @@ class PositiveDefiniteMatrix(nn.Module):
                 Omega_ = PL_ @ PL_.mT
                 print('Cholesky without projection minimum eigen value is: ', torch.diagonal(L_, dim1=-1).min())
                 print("Projected Cholesky product minimum eigen value is: ", torch.linalg.eigvalsh(Omega).min())
-                print("Projector: \n", self.projector.P - self.projector.P.T)
-                print("Symmetry check: \n", Omega_ - Omega_.mT)
+                print("Symmetry check: \n", (Omega_ - Omega_.mT).sum())
+                print("Maximum value in abs(L): ", L_.abs().max())
                 print("Projected Cholesky \n", PL_)
                 raise ValueError("Omega is singular.")
         return Omega

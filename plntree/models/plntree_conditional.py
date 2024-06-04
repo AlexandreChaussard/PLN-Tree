@@ -6,7 +6,7 @@ import torch.nn as nn
 from plntree.models.plntree import PLNTree
 from plntree.models.plntree_classifier import PLNTreeClassifier
 from plntree.utils import seed_all, functions
-
+from plntree.utils.model_utils import Vect1OrthogonalProjectorHierarchical
 
 class PLNTreeConditional(PLNTreeClassifier):
     def __init__(
@@ -158,7 +158,7 @@ class PLNTreeConditional(PLNTreeClassifier):
         probas /= n_sampling
         return probas
 
-    def hmc_log_prob_target(self, Z, X):
+    def hmc_log_prob_target(self, Z, X, projection=True):
         """
         Compute the log probability of the target distribution in the HMC for the prediction
         Normally, this would be log p(Z|X), but since we are only interested in its gradient,
@@ -168,7 +168,17 @@ class PLNTreeConditional(PLNTreeClassifier):
         if len(X.shape) == 2:
             X = X.unsqueeze(0)
         # Reformat Z to match the shape of the model
-        Z = Z.view(*X.size())
+        Z = Z.view(*X.size()).clone()
+        if projection:
+            for layer in range(len(self.K)):
+                if layer == 0:
+                    continue
+                projector = Vect1OrthogonalProjectorHierarchical(
+                        self.tree,
+                        layer+self.selected_layers[0],
+                        self.effective_K[layer]
+                    )
+                Z[:, layer, self.layer_masks[layer]] = projector(Z[:, layer, self.layer_masks[layer]])
         # Compute the PLN layer's distribution
         Z_1 = Z[:, 0, self.layer_masks[0]]
         X_1 = X[:, 0, self.layer_masks[0]]
@@ -194,7 +204,7 @@ class PLNTreeConditional(PLNTreeClassifier):
         return eval
 
     def predict_proba(self, X, n_sampling=20, hmc_step=0.3, hmc_n_steps=5, sampler='HMC',
-                      hmc_args=None, offsets=None, seed=None):
+                      hmc_args=None, offsets=None, return_Z=False, seed=None):
         if hmc_args is None:
             hmc_args = {}
         sampler_type = hamiltorch.Sampler.HMC
@@ -203,22 +213,29 @@ class PLNTreeConditional(PLNTreeClassifier):
         elif sampler == 'RMHMC':
             sampler_type = hamiltorch.Sampler.RMHMC
         seed_all(seed)
-        Z_init = self.sample(X.size(0), offsets=offsets)[2].view(-1)
-        Z_hmc = hamiltorch.sample(
-            log_prob_func=lambda Z: self.hmc_log_prob_target(Z, X),
-            params_init=Z_init,
-            num_samples=n_sampling,
-            step_size=hmc_step,
-            num_steps_per_sample=hmc_n_steps,
-            sampler=sampler_type,
-            **hmc_args
-        )
-        Z_hmc = torch.cat(Z_hmc, dim=0)
-        Z_hmc = Z_hmc.view(n_sampling, *X.size())
+        Z_init = self.sample(X.size(0), offsets=offsets)[2]
+        burn = 0
+        if 'burn' in hmc_args:
+            burn = hmc_args['burn']
+        Z_hmc = torch.zeros(X.size(0), n_sampling, X.size(1), X.size(2))
+        for i in range(len(Z_init)):
+            Z_hmc_i = hamiltorch.sample(
+                log_prob_func=lambda Z: self.hmc_log_prob_target(Z, X[i]),
+                params_init=Z_init[i].view(-1),
+                num_samples=n_sampling+burn,
+                step_size=hmc_step,
+                num_steps_per_sample=hmc_n_steps,
+                sampler=sampler_type,
+                **hmc_args
+            )
+            Z_hmc[i] = torch.stack(Z_hmc_i, dim=0).view(n_sampling, *X.size()[1:])
+
         probas = 0
         for Z_proposal in Z_hmc:
             probas += self.pi(Z_proposal)
         probas /= n_sampling
+        if return_Z:
+            return probas, Z_hmc
         return probas
 
     def predict(self, X, predict_proba_args=None, seed=None):

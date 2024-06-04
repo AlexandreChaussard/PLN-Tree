@@ -7,7 +7,7 @@ from plntree.models import pln_lib
 from plntree.models.base_plntree import _PLNTree
 from plntree.utils import seed_all
 from plntree.utils.model_utils import (PLNParameter, BoundLayer, offsets, PositiveDefiniteMatrix,
-                                   Vect1OrthogonalProjectorHierarchical, progressive_NN, is_not_inf_not_nan)
+                                       Vect1OrthogonalProjectorHierarchical, progressive_NN, is_not_inf_not_nan)
 
 from plntree.utils.variational_approximations import (VariationalApproximation,
                                                       amortized_backward_markov, backward_branch_markov,
@@ -62,7 +62,7 @@ class PLNTree(nn.Module, _PLNTree):
                 if identifiable:
                     projector = Vect1OrthogonalProjectorHierarchical(
                         self.tree,
-                        layer+self.selected_layers[0],
+                        layer + self.selected_layers[0],
                         self.effective_K[layer]
                     )
                     mu_module.append(projector)
@@ -350,3 +350,21 @@ class PLNTree(nn.Module, _PLNTree):
             return self.omega_fun[0](constant)
         else:
             return self.omega_fun[layer](Z_l_prev)
+
+    def latent_tree_allocation(self, Z):
+        Z_post = torch.zeros_like(Z)
+        for layer, mask in enumerate(self.layer_masks):
+            if layer == 0:
+                # First layer is left unchanged
+                Z_post[:, layer, mask] = torch.exp(Z[:, layer, mask])
+            else:
+                # For each parent node, we allocate the latent variables to the children based on the children weights
+                for parent in self.tree.getNodesAtDepth(layer + self.selected_layers[0] - 1):
+                    Z_parent = Z_post[:, layer - 1, parent.layer_index].unsqueeze(-1)
+                    children_index = [child.layer_index for child in parent.children]
+                    if len(children_index) == 1:
+                        Z_post[:, layer, children_index] = Z_parent
+                    else:
+                        weights = torch.softmax(Z[:, layer, children_index], dim=-1)
+                        Z_post[:, layer, children_index] = Z_parent * weights
+        return Z_post

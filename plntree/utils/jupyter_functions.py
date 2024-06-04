@@ -262,7 +262,7 @@ def add_offset(Z, O):
     return Z_offset
 
 
-def plot_alpha_diversity(X_list, taxonomy, offset_layer=0, colors=None, groups_name=None, style='violin', saveName='', filter=('Chao1',), xticks_rot=45):
+def plot_alpha_diversity(X_list, taxonomy, offset_layer=0, colors=None, groups_name=None, style='violin', saveName='', filter_alpha=('Chao1',), xticks_rot=45):
     groups = []
     for i, X in enumerate(X_list):
         groups += [groups_name[i]] * len(X)
@@ -272,16 +272,26 @@ def plot_alpha_diversity(X_list, taxonomy, offset_layer=0, colors=None, groups_n
             return X
         return torch.nn.functional.pad(X, (0, 0, n_pads, 0, 0, 0), value=0)
 
+    def filtered_alpha(layer):
+        alpha = metrics_viz.alpha_metrics(taxonomy, layer)
+        filtered_alpha = {}
+        for key, value in alpha.items():
+            should_add = True
+            for f in filter_alpha:
+                if f in key:
+                    should_add = False
+                    break
+            if should_add:
+                filtered_alpha[key] = value
+        return filtered_alpha
+
     dataset = torch.cat([pad(X, offset_layer) for X in X_list], dim=0)
     K = list(taxonomy.getLayersWidth().values())[offset_layer:]
-    alpha = metrics_viz.alpha_metrics(taxonomy, 0)
-    # filter out keys in filter list
-    alpha = {k: v for k, v in alpha.items() if k not in filter}
+    alpha = filtered_alpha(0)
     fig, axs = plt.subplots(len(alpha), len(K), figsize=(15, 8))
     for layer, K_l in enumerate(K):
 
-        alpha = metrics_viz.alpha_metrics(taxonomy, layer + offset_layer)
-        alpha = {k: v for k, v in alpha.items() if k not in filter}
+        alpha = filtered_alpha(layer + offset_layer)
 
         for i, name in enumerate(alpha.keys()):
             metric = alpha[name]
