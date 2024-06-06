@@ -35,12 +35,22 @@ def raw_abundance_filter(raw_abundance, precision=4):
     -------
     filtered_abundance
     """
-    levels = ['k', 'p', 'c', 'o', 'f', 'g', 's']
-    if precision > len(levels) or precision < 2:
-        raise ValueError(f"Precision should be less than {len(levels)} and superior to 2.")
+    levels = ['k', 'p', 'c', 'o', 'f', 'g', 's', 't']
+    if precision in levels:
+        cursor = 0
+        for level in levels:
+            if precision == level:
+                break
+            cursor += 1
+        precision = cursor
+    if precision >= len(levels)-1 or precision < 2:
+        raise ValueError(f"Precision should be less than {len(levels)-1} and superior to 2.")
 
-    selected_levels = levels[:precision]
-    filtered_out_levels = levels[precision:]
+    selected_levels = levels[:precision+1]
+    if precision+1 < len(levels):
+        filtered_out_levels = levels[precision+1:]
+    else:
+        filtered_out_levels = []
 
     # Filter out the levels
     filtered_abundance = raw_abundance.copy()
@@ -86,7 +96,7 @@ def get_taxonomy(abundance_df):
     -------
     Tree
     """
-    levels = ['k', 'p', 'c', 'o', 'f', 'g', 's']
+    levels = ['k', 'p', 'c', 'o', 'f', 'g', 's', 't']
     selected_levels = []
     abundances = abundance_df.copy()
     abundances = abundances.reset_index()

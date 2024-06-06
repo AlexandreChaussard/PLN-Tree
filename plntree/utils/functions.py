@@ -50,12 +50,17 @@ def log_pdf_multivariate_normal(mu, omega, Z):
     eval = -n * d * np.log(2 * np.pi) / 2
     eval += torch.logdet(omega).sum()
     eval += -1 / 2 * ((Z - mu).unsqueeze(-1).mT @ omega @ (Z - mu).unsqueeze(-1)).squeeze().sum()
+    assert not torch.isnan(eval).any()
+    assert not torch.isinf(eval).any()
     return eval
 
 
 def log_pdf_pln(X, Z):
     # eval = torch.distributions.Poisson(torch.exp(Z_1)).log_prob(X_1).sum()
-    return (Z * X - torch.exp(Z) - torch.lgamma(X + 1)).sum()
+    eval = (Z * X - torch.exp(Z) - torch.lgamma(X + 1)).sum()
+    assert not torch.isnan(eval).any()
+    assert not torch.isinf(eval).any()
+    return eval
 
 
 def log_pdf_multinomial_plntree(X_parent, X_child, Z_child):
@@ -67,4 +72,6 @@ def log_pdf_multinomial_plntree(X_parent, X_child, Z_child):
     eval = (torch.lgamma(X_parent + 1) - torch.lgamma(X_child + 1).sum(-1)).sum()
     eval += (Z_child * X_child).sum()
     eval += (-X_parent * torch.logsumexp(torch.exp(Z_child), dim=-1)).sum()
+    assert not torch.isnan(eval).any()
+    assert not torch.isinf(eval).any()
     return eval
