@@ -39,7 +39,7 @@ def generate_hierachical_tree(K, min_children=1, random_strategy=np.random.randn
     return tree_utils.tree_graph_builder(G)
 
 
-def vizualize_samples(dataloader, tree, selected_layers, n_viz=4, autofill=False, seed=None):
+def vizualize_samples(dataloader, tree, n_viz=4, autofill=False, seed=None):
     seed_all(seed)
     fig, axs = plt.subplots(1, n_viz, figsize=(15, 4))
     legend = True
@@ -71,7 +71,7 @@ def dataloader_to_tensors(dataloader):
     return X_base, Z_base, O_base
 
 
-def df_entities_distributions(data, layer, taxonomy, groups, figsize=(12, 8), title='Bacteria', data_layer_shift=0,
+def df_entities_distributions(data, layer, taxonomy, groups, data_layer_shift=0,
                               hide_unique_children=False):
     df = pd.DataFrame()
     if hide_unique_children and layer + data_layer_shift >= 1:
@@ -105,12 +105,11 @@ def df_entities_distributions(data, layer, taxonomy, groups, figsize=(12, 8), ti
     return df_melted, ticks_colors
 
 
-def vizualize_entities_distributions(model, entries_list, groups, title='Abundance', figsize=(12, 8)):
+def vizualize_entities_distributions(model, entries_list, groups, title='Abundance', figsize=(14, 10)):
     fig, axs = plt.subplots(len(model.K), 1, figsize=figsize)
     for layer in range(len(model.K)):
         data_layer_shift = model.selected_layers[0]
         df_melted, ticks_colors = df_entities_distributions(entries_list, layer, model.tree, groups,
-                                                            figsize=figsize, title=title,
                                                             data_layer_shift=model.selected_layers[0])
         sns.boxplot(x='Bacteria', y='Value', hue='Group', data=df_melted, fliersize=0.5, showfliers=False,
                     ax=axs[layer])
@@ -119,7 +118,8 @@ def vizualize_entities_distributions(model, entries_list, groups, title='Abundan
         if layer < len(model.K) - 1:
             axs[layer].set_xlabel('')
         else:
-            axs[layer].set_xlabel('Entity')
+            axs[layer].set_xlabel('Bacteria')
+        axs[layer].set_ylabel(title)
         plt.xticks(rotation=-90)
         for i, tick in enumerate(axs[layer].get_xticklabels()):
             tick.set_color(ticks_colors[i])
@@ -127,7 +127,7 @@ def vizualize_entities_distributions(model, entries_list, groups, title='Abundan
     fig.legend(lines, labels, loc='lower center', ncol=len(entries_list), fontsize=13)
     for ax in axs:
         ax.legend_ = None
-    plt.subplots_adjust(hspace=0.16)
+    plt.subplots_adjust(hspace=0.3)
 
 
 def multinomial_probas(Z, model):
@@ -194,8 +194,6 @@ def learn_pln(X_base, K, seed=None):
 
 
 def generate_pln_data(pln_layers, n_samples, K, selected_layers, X_base, tree, seed=None):
-    n_samples = 10_000
-
     X_pln = torch.zeros(n_samples, len(K), max(K))
     Z_pln = torch.zeros(n_samples, len(K), max(K))
     X_pln_enc = torch.zeros(len(X_base), len(K), max(K))
@@ -466,9 +464,6 @@ def compute_alpha_diversity(X_list, taxonomy, groups_name, offset_layer):
             metric = alpha[name]
             values = metric.compute_batch(dataset)
             alpha_df_list[i][f'{name}'] = values
-            #nan_mask = pd.isna(alpha_df_list[i][f'{name}'])
-            #inf_mask = np.isinf(alpha_df_list[i][f'{name}'])
-            #alpha_df_list[i] = alpha_df_list[i][~nan_mask & ~inf_mask]
     for df in alpha_df_list:
         df[f'Group'] = groups
     return alpha_df_list
