@@ -5,22 +5,28 @@
 > In its current form, PLN-Tree can be used for data augmentation tasks, preprocessing of compositional data (like CLR, ALR, ILR transforms), or to unveil interaction graphs of entities along their hierarchy.
 > 
 
-## ⭐ Paper experiments
+## 📖 Overview
 This code aims at reproducing the results in [Chaussard et al. (2024). Tree-based variational inference for Poisson log-normal models](https://arxiv.org/abs/2406.17361).
 
 Experiments made in the article can be found in the `experiments` notebook at the root of the repository.
 
-## ⭐ Getting started
 For a quick overview of the package functions, check the [getting started notebook](https://github.com/AlexandreChaussard/PLN-Tree/blob/master/Getting_started.ipynb).
 
 ## 🛠 Installation
 
-Run
+First, clone the repository:
+```
+git clone https://github.com/AlexandreChaussard/PLN-Tree.git
+```
+
+Then, install the required packages:
 ```pip install -r requirements.txt```
+
+Test the installation from the [getting started notebook](https://github.com/AlexandreChaussard/PLN-Tree/blob/master/Getting_started.ipynb).
 
 ## 📦 Package structure
 
-Please find the PLN-Tree models in `plntree.models`. 
+Please find the PLN-Tree models modules in `plntree.models`. 
 
 Studied datasets are imported in `plntree.data`. 
 Several pre-trained models can be found in `experiments/save` for each dataset in different settings,
