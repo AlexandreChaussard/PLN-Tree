@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 from torch.distributions import MultivariateNormal
 import numpy as np
+import time
 
 
 def seed_all(seed):
@@ -11,10 +12,17 @@ def seed_all(seed):
         return
     torch.manual_seed(seed)
     np.random.seed(seed)
+
+def _format_time(seconds):
+    hours, remainder = divmod(seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{int(hours):02}:{int(minutes):02}:{int(seconds):02}"
+
 def fit(model, optimizer, data_train_loader, n_epoch, max_grad_norm=1., verbose=10, writer=None, writer_fun=None):
     losses = []
     model.smart_init(data_train_loader)
     smooth_avg = []
+    timer = time.time()
     for epoch in range(n_epoch):
         train_loss = 0
         for batch_idx, data in enumerate(data_train_loader):
@@ -47,8 +55,10 @@ def fit(model, optimizer, data_train_loader, n_epoch, max_grad_norm=1., verbose=
             if writer_fun is not None:
                 writer_fun(writer, model, epoch)
         if len(smooth_avg) == verbose:
-            print('[*] Epoch: {} Average loss: {:.4f}'.format(epoch, np.mean(smooth_avg)))
+            formatted_time = _format_time((time.time() - timer) * (n_epoch - epoch) / verbose)
+            print('[*] Epoch: {} Average loss: {:.4f}'.format(epoch, np.mean(smooth_avg)) + '    | Remaining Time: ' + formatted_time)
             smooth_avg = [avg_loss]
+            timer = time.time()
         else:
             smooth_avg += [avg_loss]
         losses.append(avg_loss)
@@ -147,6 +157,13 @@ def save_load(object, fileName, overwrite=False):
         pickle.dump(object, open(fileName, 'wb'))
         print('Object saved successfully.')
 
+def linear_builder(sizes, activation=nn.ReLU, output_activation=None):
+    return nn.Sequential(
+        *[nn.Sequential(
+            nn.Linear(sizes[i], sizes[i + 1]),
+            activation()
+        ) for i in range(len(sizes) - 2)] + [nn.Linear(sizes[-2], sizes[-1])] + ([output_activation] if output_activation is not None else [])
+    )
 
 def batch_layers_to_tensors(Z_list, K, fill_value=0.):
     K_max = max(K)
@@ -490,8 +507,9 @@ class PLNParameter(nn.Module):
 
 
 class SimplexParameter(nn.Module):
-    def __init__(self, size):
+    def __init__(self, size, seed=None):
         super(SimplexParameter, self).__init__()
+        seed_all(seed)
         self.param = nn.Parameter(torch.randn(size))
 
     def forward(self):

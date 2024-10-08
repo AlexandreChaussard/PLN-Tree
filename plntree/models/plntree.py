@@ -2,13 +2,11 @@ import torch
 import torch.nn as nn
 from torch import transpose
 
-from plntree.models import pln_lib
-
 from plntree.models.base_plntree import _PLNTree
 from plntree.utils import seed_all
-from plntree.utils.model_utils import (PLNParameter, BoundLayer, offsets, PositiveDefiniteMatrix,
+from plntree.utils.functions import clr_transform
+from plntree.utils.model_utils import (PLNParameter, BoundLayer, PositiveDefiniteMatrix,
                                        Vect1OrthogonalProjectorHierarchical, progressive_NN, is_not_inf_not_nan)
-
 from plntree.utils.variational_approximations import (VariationalApproximation,
                                                       amortized_backward_markov, backward_branch_markov,
                                                       weak_backward_markov, residual_backward_markov)
@@ -280,6 +278,21 @@ class PLNTree(nn.Module, _PLNTree):
         self.mu_fun[0].data = torch.log(X + 1e-8).mean(axis=0)
         return self
 
+    def identify(self, Z):
+        Z_proj = torch.zeros_like(Z)
+        for layer, mask in enumerate(self.layer_masks):
+            if layer == 0:
+                Z_proj[:, layer, mask] = Z[:, layer, mask]
+                continue
+            projector = Vect1OrthogonalProjectorHierarchical(
+                            self.tree,
+                            layer + self.selected_layers[0],
+                            self.effective_K[layer]
+                        )
+            Z_proj[:, layer, mask] = projector(Z[:, layer, mask])
+        return Z_proj
+
+
     def sample(self, batch_size, offsets=None, seed=None):
         seed_all(seed)
         K_max = max(self.K)
@@ -351,7 +364,7 @@ class PLNTree(nn.Module, _PLNTree):
         else:
             return self.omega_fun[layer](Z_l_prev)
 
-    def latent_tree_allocation(self, Z):
+    def latent_tree_counts(self, Z):
         Z_post = torch.zeros_like(Z)
         for layer, mask in enumerate(self.layer_masks):
             if layer == 0:
@@ -368,3 +381,23 @@ class PLNTree(nn.Module, _PLNTree):
                         weights = torch.softmax(Z[:, layer, children_index], dim=-1)
                         Z_post[:, layer, children_index] = Z_parent * weights
         return Z_post
+
+    def latent_tree_allocation(self, Z):
+        Z_post = torch.zeros_like(Z) + Z
+        for layer, mask in enumerate(self.layer_masks):
+            if layer == 0:
+                continue
+            else:
+                # For each parent node, if they have an only child, we allocate the latent variables to the children
+                for parent in self.tree.getNodesAtDepth(layer + self.selected_layers[0] - 1):
+                    Z_parent = Z_post[:, layer - 1, parent.layer_index].unsqueeze(-1)
+                    children_index = [child.layer_index for child in parent.children]
+                    if len(children_index) == 1:
+                        Z_post[:, layer, children_index] = Z_parent
+        return Z_post
+
+    def latent_clr(self, Z):
+        V = self.latent_tree_counts(Z)
+        for layer, mask in enumerate(self.layer_masks):
+            V[:, layer, mask] = clr_transform(V[:, layer, mask])
+        return V

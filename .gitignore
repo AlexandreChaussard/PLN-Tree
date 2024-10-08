@@ -161,3 +161,11 @@ cython_debug/
 .idea/
 .iml
 /runs/*
+/plntree/data/curatedMetagenomicData/.~lock.control.csv#
+/plntree/data/curatedMetagenomicData/.~lock.metadata.csv#
+/experiments/curated_metagenomics_samples.pdf
+/counts
+/metadata
+/plntree/data/curatedMetagenomicData/metadata.csv
+/plntree/data/curatedMetagenomicData/taxa_abundances.csv
+/plntree/data/suivitheque/.*.xlsx#

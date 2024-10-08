@@ -149,7 +149,7 @@ def get_taxonomy(abundance_df):
 
     # Now we can build the global tree architecture
     taxonomy = Tree(adjacent_matrix=adjacent_matrix)
-    # We apply the name of the bacteria to each node in the tree using the matching dictionnary
+    # We apply the name of the bacteria to each node in the tree using the matching dictionary
     for node in taxonomy.nodes:
         for name, index in mapping_index.items():
             if index == node.index:

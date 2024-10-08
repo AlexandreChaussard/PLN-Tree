@@ -1,41 +1,46 @@
 from abc import ABC, abstractmethod
 
 import numpy as np
+import torch
 
 from plntree.metrics import utils
-from plntree.utils import tree_utils
 
 
 class LayerBetaDiversity(ABC):
 
-    def __init__(self, taxonomy, layer):
-        self.taxonomy = taxonomy
-        self.layer = layer
+    def __init__(self, K):
+        self.K = K
 
     @abstractmethod
     def compute(self, counts_1, counts_2):
         pass
 
-    def compute_batch(self, batch_1, batch_2):
-        K_l = self.taxonomy.getLayersWidth()[self.layer]
-        X_l_1 = batch_1[:, self.layer, :K_l]
-        X_l_2 = batch_2[:, self.layer, :K_l]
+    def compute_batch(self, batch_1, batch_2, layer):
+        K_l = self.K[layer]
+        X_l_1 = batch_1[:, layer, :K_l]
+        X_l_2 = batch_2[:, layer, :K_l]
         distances = np.zeros((len(X_l_1), len(X_l_2)))
         for i, X_il_1 in enumerate(X_l_1):
             for j, X_jl_2 in enumerate(X_l_2):
                 distances[i][j] = self.compute(X_il_1, X_jl_2)
         return distances
 
-    def compute_self_batch(self, batch):
-        return self.compute_batch(batch, batch)
+    def dissimilarity(self, list_batch, layer):
+        X = np.concatenate(list_batch, axis=0)
+        distances = np.identity(len(X))
+        for i in range(len(X)):
+            for j in range(i, len(X)):
+                distances[i, j] = self.compute(X[i, layer, :self.K[layer]], X[j, layer, :self.K[layer]])
+        distances = distances + np.triu(distances, 1).T
+        return distances
 
 
 class BrayCurtis(LayerBetaDiversity):
 
     def compute(self, counts_1, counts_2):
         assert (len(counts_1) == len(counts_2))
-        observed_OTUs_1 = counts_1[(counts_1 > 0) & (counts_2 > 0)].numpy()
-        observed_OTUs_2 = counts_2[(counts_1 > 0) & (counts_2 > 0)].numpy()
+        observed_OTUs_1 = np.array(counts_1[(counts_1 > 0) & (counts_2 > 0)])
+        observed_OTUs_2 = np.array(counts_2[(counts_1 > 0) & (counts_2 > 0)])
         li = [np.min((observed_OTUs_1[i], observed_OTUs_2[i])) for i in range(len(observed_OTUs_1))]
         C = np.sum(li)
         S_1 = np.sum(observed_OTUs_1)
@@ -47,15 +52,16 @@ class BrayCurtis(LayerBetaDiversity):
 
 class Jaccard(utils.GraphDistanceMetric):
 
-    def __init__(self, taxonomy, weighted=False):
+    def __init__(self, taxonomy, layer_shift=0, weighted=False):
         super().__init__(taxonomy)
         self.weighted = weighted
+        self.layer_shift = layer_shift
 
     def compute(self, taxa_1, taxa_2):
         n_shared = 0
         n_tot = 0
-        for layer in range(len(taxa_1)):
-            K_l = self.taxonomy.getLayersWidth()[layer]
+        for layer in range(0, len(taxa_1)):
+            K_l = self.taxonomy.getLayersWidth()[layer + self.layer_shift]
             X_l_1 = taxa_1[layer, :K_l]
             X_l_2 = taxa_2[layer, :K_l]
             otu_l1 = X_l_1[(X_l_1 > 0) & (X_l_2 > 0)]
@@ -78,21 +84,24 @@ class Jaccard(utils.GraphDistanceMetric):
 
 class UniFrac(utils.GraphDistanceMetric):
 
-    def __init__(self, taxonomy, weighted=False):
+    def __init__(self, taxonomy, layer_shift=0, weighted=False):
         super().__init__(taxonomy)
         self.weighted = weighted
+        self.layer_shift = layer_shift
 
     def compute(self, taxa_1, taxa_2):
         unifrac = 0
         branch_total = 0
-        X_1 = tree_utils.abundance_tree_builder(self.taxonomy, taxa_1)
-        X_2 = tree_utils.abundance_tree_builder(self.taxonomy, taxa_2)
+        X_1 = torch.tensor(taxa_1)
+        X_2 = torch.tensor(taxa_2)
         for node in self.taxonomy.nodes:
-            a = X_1.nodes[node.index].value
-            b = X_2.nodes[node.index].value
+            layer = node.depth - self.layer_shift
+            a = X_1[layer, node.layer_index]
+            b = X_2[layer, node.layer_index]
             if self.weighted:
-                a /= X_1.root.value
-                b /= X_2.root.value
+                if layer > 0:
+                    a /= X_1[layer - 1, node.parent.layer_index]
+                    b /= X_2[layer - 1, node.parent.layer_index]
                 # The weight of the branch of a node-node.parent corresponds to the value of the node
                 branch_length = node.value
             else:

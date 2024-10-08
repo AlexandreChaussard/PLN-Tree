@@ -7,7 +7,10 @@ from plntree.utils import seed_all
 def fit(X, layer, K, tol=1e-15):
     X_l = X[:, layer, :K[layer]].numpy().astype(np.float64)
     pln = Pln(X_l, add_const=True)
-    pln.fit(tol=tol, nb_max_iteration=800_000)
+    try:
+        pln.fit(tol=tol, nb_max_iteration=800_000)
+    except:
+        pln.fit(tol=tol)
     return pln
 
 

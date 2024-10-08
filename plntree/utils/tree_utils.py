@@ -335,8 +335,6 @@ def abundance_tree_builder(tree_graph: Tree, abundance_matrix_per_layer, entitie
             abundance_values[node.index] = x_kl
             if entities_name is not None:
                 node.name = entities_name[l][k]
-            else:
-                node.name = node.index
     else:
         abundance_trees = []
         for matrix_per_layer in abundance_matrix_per_layer:

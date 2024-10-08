@@ -55,9 +55,9 @@ def log_pdf_multivariate_normal(mu, omega, Z):
     return eval
 
 
-def log_pdf_pln(X, Z):
+def log_pdf_cond_pln(X, Z_cond):
     # eval = torch.distributions.Poisson(torch.exp(Z_1)).log_prob(X_1).sum()
-    eval = (Z * X - torch.exp(Z) - torch.lgamma(X + 1)).sum()
+    eval = (Z_cond * X - torch.exp(Z_cond) - torch.lgamma(X + 1)).sum()
     assert not torch.isnan(eval).any()
     assert not torch.isinf(eval).any()
     return eval
@@ -75,3 +75,51 @@ def log_pdf_multinomial_plntree(X_parent, X_child, Z_child):
     assert not torch.isnan(eval).any()
     assert not torch.isinf(eval).any()
     return eval
+
+def log_pdf_cond_plntree(plntree, X, Z_cond, O_cond):
+    # Compute the PLN layer's distribution
+    Z_1 = Z_cond[:, 0, plntree.layer_masks[0]] + O_cond
+    X_1 = X[:, 0, plntree.layer_masks[0]]
+    eval = log_pdf_cond_pln(X_1, Z_1)
+    # Compute the multinomial propagations distribution
+    for layer in range(0, len(plntree.K) - 1):
+        for node in plntree.tree.getNodesAtDepth(layer + plntree.selected_layers[0]):
+            children_index = [child.layer_index for child in node.children]
+            Z_child = Z_cond[:, layer + 1, children_index] + O_cond
+            X_child = X[:, layer + 1, children_index]
+            X_parent = X[:, layer, node.layer_index]
+            eval += log_pdf_multinomial_plntree(X_parent, X_child, Z_child)
+    return eval
+
+def log_pdf_plntree(plntree, X, Z, O):
+    # Compute the observed counts log pdf
+    eval = log_pdf_cond_plntree(plntree, X, Z, O)
+    # Compute the latents Markov Gaussian log pdf
+    # Starting with the first layer which is Gaussian
+    eval += log_pdf_multivariate_normal(
+        plntree.mu_fun[0].data, plntree.omega_fun[0].data, Z[:, 0, plntree.layer_masks[0]]
+    )
+    # The propagation is Gaussian Markov
+    for layer in range(0, len(plntree.K) - 1):
+        Z_prev = Z[:, layer, plntree.layer_masks[layer]]
+        Z_cur = Z[:, layer + 1, plntree.layer_masks[layer + 1]]
+        mu_cur = plntree.mu_fun[layer + 1](Z_prev)
+        omega_cur = plntree.omega_fun[layer + 1](Z_prev)
+        eval += log_pdf_multivariate_normal(mu_cur, omega_cur, Z_cur)
+    return eval
+
+def clr_transform(X):
+    """Center log-ratio transformation."""
+    if type(X) == torch.Tensor:
+        X_log = torch.log(X + 1e-10)
+        X_geometric_mean = X_log.mean(-1, keepdim=True)
+        return X_log - X_geometric_mean
+    X_log = np.log(X + 1e-10)
+    X_geometric_mean = X_log.mean(-1, keepdims=True)
+    return X_log - X_geometric_mean
+
+def invert_clr_transform(X_clr):
+    """Invert the center log-ratio transformation."""
+    X = np.exp(X_clr - X_clr.max(axis=-1, keepdims=True))
+    return X / X.sum(axis=-1, keepdims=True)
+

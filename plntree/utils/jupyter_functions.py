@@ -1,18 +1,22 @@
 import pickle
 
-import matplotlib.pyplot as plt
 import matplotlib
+import matplotlib.pyplot as plt
 import numpy as np
+import ot
 import pandas as pd
 import seaborn as sns
 import torch
-import ot
 
 import plntree.metrics.viz as metrics_viz
 from plntree.data import artificial_loader
-from plntree.models import pln_lib
-from plntree.utils import tree_utils
+from plntree.metrics import BrayCurtis
+from plntree.metrics.utils import (bootstrap_mean_project_beta_diversity,
+                                   bootstrap_relative_mean_coverage_beta_diversity,
+                                   bootstrap_perm_pvalue)
+from plntree.models import pln_lib, SparCC, SPiEC_Easi
 from plntree.utils import seed_all
+from plntree.utils import tree_utils
 from plntree.utils.functions import remove_outliers_iqr
 
 
@@ -217,6 +221,29 @@ def generate_pln_data(pln_layers, n_samples, K, selected_layers, X_base, tree, s
 
     return X_pln, Z_pln, X_pln_fill, X_pln_enc, Z_pln_enc, X_pln_enc_fill
 
+def sample_model_layers(model_per_layers, n_samples, K, selected_layers, tree, seed=None):
+    seed_all(seed)
+    X = torch.zeros((n_samples, len(K), max(K)))
+    for l, K_l in enumerate(K):
+        X[:, l, :K_l] = torch.tensor(model_per_layers[l].sample(n_samples, seed=seed))
+    X_fill = X[:, -1, :K_l].unsqueeze(1)
+    X_fill = tree.hierarchical_compositional_constraint_fill(X_fill)[:, selected_layers[0]:]
+    return X, X_fill
+
+def learn_per_layer_sparCC(X, K):
+    sparCC_layers = []
+    for l, K_l in enumerate(K):
+        sparCC = SparCC().fit(X[:, l, :K_l])
+        sparCC_layers.append(sparCC)
+    return sparCC_layers
+
+def learn_per_layer_spiec_easi(X, K, glasso_args, seed=None):
+    seed_all(seed)
+    sparCC_layers = []
+    for l, K_l in enumerate(K):
+        sparCC = SPiEC_Easi(glasso_args).fit(X[:, l, :K_l])
+        sparCC_layers.append(sparCC)
+    return sparCC_layers
 
 def learn_multiple_models(n_repeat, learn_model, save_as=None):
     estimators = []
@@ -300,24 +327,27 @@ def plot_alpha_diversity(X_list, taxonomy, offset_layer=0, colors=None, groups_n
             nan_mask = pd.isna(df['Metric'])
             inf_mask = np.isinf(df['Metric'])
             df = df[~nan_mask & ~inf_mask]
-
+            try:
+                ax = axs[i][layer]
+            except:
+                ax = axs[i]
             if style == 'violin':
                 df = remove_outliers_iqr(df, 'Metric', threshold=1.5)
-                sns.violinplot(x='Group', y='Metric', data=df, ax=axs[i][layer], palette=colors, cut=0.,
+                sns.violinplot(x='Group', y='Metric', data=df, ax=ax, palette=colors, cut=0.,
                                inner='boxplot')
             else:
-                sns.boxplot(x='Group', y='Metric', data=df, ax=axs[i][layer], showfliers=False, palette=colors)
-            axs[i][layer].set_title(name)
-            axs[i][layer].set_xlabel('')
+                sns.boxplot(x='Group', y='Metric', data=df, ax=ax, showfliers=False, palette=colors)
+            ax.set_title(name)
+            ax.set_xlabel('')
 
             # Rotate x-axis tick labels
             if i == len(alpha) - 1:
-                axs[i][layer].set_xticklabels(axs[i][layer].get_xticklabels(), rotation=xticks_rot)
+                ax.set_xticklabels(ax.get_xticklabels(), rotation=xticks_rot)
             else:
-                axs[i][layer].set_xticklabels([], rotation=xticks_rot)
-            # Show gridaxs[i][layer].set_xticklabels(axs[i][layer].get_xticklabels(), rotation=45) and set it below the boxplots
-            axs[i][layer].grid(True, which='both', linestyle='--', linewidth=0.5)
-            axs[i][layer].set_axisbelow(True)
+                ax.set_xticklabels([], rotation=xticks_rot)
+            # Show grid and set it below the boxplots
+            ax.grid(True, which='both', linestyle='--', linewidth=0.5)
+            ax.set_axisbelow(True)
     if len(saveName) > 0:
         savefig(f'{saveName}_alpha_diversity')
 
@@ -575,3 +605,63 @@ def repeated_metric_compute(tree, X_base, X_comp, groups, n_split, distance, off
     else:
         styled_means = bold_min(pd.concat((means, ranks)))
     return styled_means
+
+def bootstrap_mean_project_braycurtis(K, X_base, X_list, names, n_samples=100, n_repeat=10, seed=None):
+    seed_all(seed)
+    df = pd.DataFrame()
+    for layer in range(X_base.shape[1]):
+        results_l = bootstrap_mean_project_beta_diversity(
+            BrayCurtis(K), {'layer':layer},
+            X_base, X_list, names, n_samples=n_samples, n_repeat=n_repeat
+        )
+        df['l = ' + str(layer)] = [f"{np.round(results_l['mean'][i], 3)} ({np.round(results_l['std'][i], 3)})" for i in range(len(names))]
+        df.index = names
+    return df
+
+def bootstrap_relative_mean_coverage_braycurtis(K, X_base, X_list, names, n_samples=100, n_repeat=10, seed=None):
+    seed_all(seed)
+    df = pd.DataFrame()
+    for layer in range(X_base.shape[1]):
+        results_l = bootstrap_relative_mean_coverage_beta_diversity(
+            BrayCurtis(K), {'layer':layer},
+            X_base, X_list, names, n_samples=n_samples, n_repeat=n_repeat
+        )
+        df['l = ' + str(layer)] = [f"{np.round(results_l['mean'][i], 3)} ({np.round(results_l['std'][i], 3)})" for i in range(len(names))]
+        df.index = names
+    return df
+
+def bootstrap_pvalues_braycurtis(K, method, X_base, X_list, names, n_samples=100, n_repeat=10, replacement=False, seed=None):
+    seed_all(seed)
+    df = pd.DataFrame()
+    layer_pvalues = []
+    for layer in range(X_base.shape[1]):
+        pvalues = bootstrap_perm_pvalue(
+            method, BrayCurtis(K),
+            X_base, X_list, names, n_samples=n_samples, n_repeat=n_repeat, beta_args={'layer':layer},
+            replacement=replacement
+        )
+        layer_pvalues.append(pvalues)
+        pvalues_mean = pvalues.mean(0)
+        pvalues_std = pvalues.std(0)
+        df['l = ' + str(layer)] = [
+            f'{np.round(pvalues_mean[i], 3)} ({np.round(pvalues_std[i], 3)})' for i in range(len(pvalues_mean))
+        ]
+        df.index = names
+    return df, layer_pvalues
+
+def plot_test_pvalues(pvalues_list, test_names, axs=None, title='', figsize=(10, 6), logscale=False):
+    df_list = []
+    for df, test_name in zip(pvalues_list, test_names):
+        df_melted = df.melt(var_name='', value_name='p-value')
+        df_melted['Test'] = test_name
+        df_list.append(df_melted)
+    df = pd.concat(df_list)
+    if axs is None:
+        fig, axs = plt.subplots(figsize=figsize)
+    sns.boxplot(x='', y='p-value', hue='Test', data=df, ax=axs, palette="Set2")
+    sns.stripplot(x='', y='p-value', hue='Test', dodge=True, jitter=True, marker='o', alpha=0.7, data=df, ax=axs, color='k', legend=False)
+    axs.set_yticks(np.linspace(0, 1, 5))
+    axs.set_title(title)
+    if logscale:
+        axs.set_yscale('log')
+        axs.set_ylabel('log(p-value)')

@@ -175,7 +175,7 @@ def PCoA_plot(dissimilarities, axs=None, title="Dissimilarities", color="C0", la
         labels = np.asarray(labels)
         unique = np.unique(color)
         for c in unique:
-            index = np.where(color == c)
+            index = np.where(color == c)[0]
             label = labels[index][0]
             axs.scatter(pcoa_array[index, 0], pcoa_array[index, 1], c=c, label=label, alpha=.4)
         axs.legend()

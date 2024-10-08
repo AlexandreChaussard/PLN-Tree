@@ -202,3 +202,27 @@ def vizualize_entities_abundance(data, layer, taxonomy, groups, figsize=(12, 8),
         tick.set_color(ticks_colors[i])
 
     return df
+
+def plot_beta_diversity_PCoA(metrics, name="Beta diversity", colors=None, labels=None, figsize=(12, 12)):
+    fig, axs = plt.subplots(1, 1, figsize=figsize)
+    df = pd.DataFrame(data=metrics)
+    viz.PCoA_plot(df, title=f"{name} 2D dissimilarity", axs=axs, color=colors, labels=labels)
+
+def plot_all_beta_diversity_PCoA(X_list, metrics_list, names, colors=None, labels=None, figsize=(12, 12)):
+    fig, axs = plt.subplots(1, len(metrics_list), figsize=figsize)
+    for i, dissimilarity in enumerate(metrics_list):
+        if labels is not None:
+            labels_samples = []
+            colors_samples = []
+            for j, X in enumerate(X_list):
+                colors_samples += [colors[j]] * len(X)
+                labels_samples += [labels[j]] * len(X)
+            assert(len(colors_samples) == len(dissimilarity))
+        else:
+            colors_samples = None
+            labels_samples = None
+        df = pd.DataFrame(data=dissimilarity)
+        if len(metrics_list) > 1:
+            viz.PCoA_plot(df, title=f"{names[i]}", axs=axs[i], color=colors_samples, labels=labels_samples)
+        else:
+            viz.PCoA_plot(df, title=f"{names[i]}", axs=axs, color=colors_samples, labels=labels_samples)
