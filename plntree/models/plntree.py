@@ -364,12 +364,17 @@ class PLNTree(nn.Module, _PLNTree):
         else:
             return self.omega_fun[layer](Z_l_prev)
 
-    def latent_tree_counts(self, Z):
+    def latent_tree_counts(self, Z, proportions=False):
         Z_post = torch.zeros_like(Z)
         for layer, mask in enumerate(self.layer_masks):
             if layer == 0:
-                # First layer is left unchanged
-                Z_post[:, layer, mask] = torch.exp(Z[:, layer, mask])
+                if proportions:
+                    # If we want a proportion latent variable, we apply a softmax on the first layer
+                    # which suggest the total count is 0 (Poisson under constrain of total count summing to 1)
+                    Z_post[:, layer, mask] = torch.softmax(Z[:, layer, mask], dim=-1)
+                else:
+                    # If we want a count interpretation, we take the exponential of the latent variable
+                    Z_post[:, layer, mask] = torch.exp(Z[:, layer, mask])
             else:
                 # For each parent node, we allocate the latent variables to the children based on the children weights
                 for parent in self.tree.getNodesAtDepth(layer + self.selected_layers[0] - 1):
