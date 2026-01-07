@@ -4,6 +4,8 @@
 > 
 > In its current form, PLN-Tree can be used for data augmentation tasks, preprocessing of compositional data (like CLR, ALR, ILR transforms), or to unveil interaction graphs of entities along their hierarchy.
 > 
+## 📢 Looking for a more user-friendly implementation?
+This repository contains a research-level implementation of PLN-Tree. If you're looking for a faster, scalable and user-friendly implementation, check out the [PyPI package instead here](https://github.com/AlexandreChaussard/PLNTree-package).
 
 ## 📖 Overview
 This code aims at reproducing the results in [Chaussard et al. (2024). Tree-based variational inference for Poisson log-normal models](https://arxiv.org/abs/2406.17361).
